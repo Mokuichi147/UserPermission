@@ -1,0 +1,20 @@
+[project]
+name = "user-permission"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "mokuichi147", email = "38586357+Mokuichi147@users.noreply.github.com" }
+]
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+requires-python = ">=3.12.10"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "pwdlib[argon2]>=0.3.0",
+    "pyjwt>=2.12.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.17,<0.10.0"]
+build-backend = "uv_build"
