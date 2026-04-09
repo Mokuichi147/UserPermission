@@ -10,6 +10,9 @@
 
 ```bash
 uv sync
+
+# FastAPI連携を使う場合
+uv sync --extra fastapi
 ```
 
 ## 使い方
@@ -106,6 +109,56 @@ members = await group_mgr.get_members(group.id)
 groups = await group_mgr.get_user_groups(user.id)
 ```
 
+### FastAPI連携
+
+`user-permission[fastapi]` でインストールすると、ルーターを追加するだけでREST APIが使えます。
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from user_permission import (
+    Database, TokenManager, UserManager, GroupManager, create_router,
+)
+
+db = Database("app.db")
+token_mgr = TokenManager.from_file("secret.key")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await db.connect()
+    yield
+    await db.close()
+
+app = FastAPI(lifespan=lifespan)
+
+user_mgr = UserManager(db, token_mgr)
+group_mgr = GroupManager(db, user_mgr)
+
+router = create_router(db, token_mgr, user_mgr, group_mgr, prefix="/api")
+app.include_router(router)
+```
+
+#### エンドポイント一覧
+
+| メソッド | パス | 説明 | 認証 |
+|---|---|---|---|
+| POST | `/api/token` | ログイン（トークン取得） | 不要 |
+| GET | `/api/me` | 現在のユーザー情報 | 必要 |
+| POST | `/api/users` | ユーザー作成 | 不要 |
+| GET | `/api/users` | ユーザー一覧 | 必要 |
+| GET | `/api/users/{id}` | ユーザー取得 | 必要 |
+| PATCH | `/api/users/{id}` | ユーザー更新（本人のみ） | 必要 |
+| DELETE | `/api/users/{id}` | ユーザー削除（本人のみ） | 必要 |
+| POST | `/api/groups` | グループ作成 | 必要 |
+| GET | `/api/groups` | グループ一覧 | 必要 |
+| GET | `/api/groups/{id}` | グループ取得 | 必要 |
+| PATCH | `/api/groups/{id}` | グループ更新 | 必要 |
+| DELETE | `/api/groups/{id}` | グループ削除 | 必要 |
+| POST | `/api/groups/{id}/members` | メンバー追加 | 必要 |
+| DELETE | `/api/groups/{id}/members/{user_id}` | メンバー削除 | 必要 |
+| GET | `/api/groups/{id}/members` | メンバー一覧 | 必要 |
+| GET | `/api/users/{id}/groups` | 所属グループ一覧 | 必要 |
+
 ## データベーススキーマ
 
 | テーブル | 説明 |
@@ -121,6 +174,10 @@ groups = await group_mgr.get_user_groups(user.id)
 - [aiosqlite](https://pypi.org/project/aiosqlite/) - 非同期SQLite
 - [pwdlib[argon2]](https://pypi.org/project/pwdlib/) - パスワードハッシュ化
 - [PyJWT](https://pypi.org/project/PyJWT/) - JWTトークン
+
+オプション（`user-permission[fastapi]`）:
+- [FastAPI](https://pypi.org/project/fastapi/) - Web APIフレームワーク
+- [python-multipart](https://pypi.org/project/python-multipart/) - フォームデータ解析
 
 ## ライセンス
 

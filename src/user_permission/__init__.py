@@ -15,3 +15,10 @@ __all__ = [
     "load_or_create_secret",
     "verify_password",
 ]
+
+try:
+    from .fastapi import create_router as create_router
+
+    __all__.append("create_router")
+except ImportError:
+    pass
