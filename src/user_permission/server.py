@@ -5,13 +5,13 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 
-from . import connect
 from .database import Database
+from .fastapi import create_router
 
 
 def create_app(
     *,
-    backend: str = "user_permission.db",
+    database: str = "user_permission.db",
     secret: str = "secret.key",
     prefix: str = "",
 ) -> FastAPI:
@@ -19,31 +19,21 @@ def create_app(
 
     Parameters
     ----------
-    backend:
-        File path for local SQLite mode, or URL for relay mode.
-        (e.g. ``"user_permission.db"`` or ``"http://localhost:8001"``)
+    database:
+        Path to the SQLite database file.
     secret:
-        Path to the secret-key file (local mode only; ignored in relay).
+        Path to the secret-key file (auto-created if missing).
     prefix:
         URL prefix for all API routes (e.g. ``"/api"``).
     """
-    source = connect(backend, secret=secret)
+    db = Database(database, secret_key=secret)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        await source.connect()
+        await db.connect()
         yield
-        await source.close()
+        await db.close()
 
     app = FastAPI(title="UserPermission", lifespan=lifespan)
-
-    if isinstance(source, Database):
-        from .fastapi import create_router
-
-        app.include_router(create_router(source, prefix=prefix))
-    else:
-        from .relay import create_relay_router
-
-        app.include_router(create_relay_router(source, prefix=prefix))
-
+    app.include_router(create_router(db, prefix=prefix))
     return app
