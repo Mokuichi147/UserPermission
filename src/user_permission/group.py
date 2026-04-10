@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .database import Database
-from .user import User, UserManager
+from .user import User
 
 
 @dataclass
@@ -13,20 +13,20 @@ class Group:
     created_at: str
     updated_at: str
 
-
-class GroupManager:
-    def __init__(self, db: Database, user_manager: UserManager) -> None:
-        self._db = db
-        self._user_manager = user_manager
-
-    def _row_to_group(self, row: Any) -> Group:
-        return Group(
+    @classmethod
+    def from_row(cls, row: Any) -> "Group":
+        return cls(
             id=row["id"],
             name=row["name"],
             description=row["description"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+
+class GroupManager:
+    def __init__(self, db: Database) -> None:
+        self._db = db
 
     async def create(self, name: str, description: str = "") -> Group:
         conn = self._db.connection
@@ -38,7 +38,7 @@ class GroupManager:
         row = await (
             await conn.execute("SELECT * FROM groups WHERE id = ?", (cursor.lastrowid,))
         ).fetchone()
-        return self._row_to_group(row)
+        return Group.from_row(row)
 
     async def get_by_id(self, group_id: int) -> Group | None:
         row = await (
@@ -46,7 +46,7 @@ class GroupManager:
                 "SELECT * FROM groups WHERE id = ?", (group_id,)
             )
         ).fetchone()
-        return self._row_to_group(row) if row else None
+        return Group.from_row(row) if row else None
 
     async def get_by_name(self, name: str) -> Group | None:
         row = await (
@@ -54,13 +54,13 @@ class GroupManager:
                 "SELECT * FROM groups WHERE name = ?", (name,)
             )
         ).fetchone()
-        return self._row_to_group(row) if row else None
+        return Group.from_row(row) if row else None
 
     async def list_all(self) -> list[Group]:
         rows = await (
             await self._db.connection.execute("SELECT * FROM groups ORDER BY id")
         ).fetchall()
-        return [self._row_to_group(r) for r in rows]
+        return [Group.from_row(r) for r in rows]
 
     async def update(
         self,
@@ -127,7 +127,7 @@ class GroupManager:
                 (group_id,),
             )
         ).fetchall()
-        return [self._user_manager._row_to_user(r) for r in rows]
+        return [User.from_row(r) for r in rows]
 
     async def get_user_groups(self, user_id: int) -> list[Group]:
         rows = await (
@@ -141,4 +141,4 @@ class GroupManager:
                 (user_id,),
             )
         ).fetchall()
-        return [self._row_to_group(r) for r in rows]
+        return [Group.from_row(r) for r in rows]

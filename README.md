@@ -21,14 +21,14 @@ uv sync --extra fastapi
 
 ```python
 import asyncio
-from user_permission import Database, TokenManager, UserManager, GroupManager
+from user_permission import Database
 
 async def main():
-    async with Database("app.db") as db:
-        # 初回実行時にシークレットキーを自動生成（以降はファイルから読み込み）
-        token_mgr = TokenManager.from_file("secret.key")
-        user_mgr = UserManager(db, token_mgr)
-        group_mgr = GroupManager(db, user_mgr)
+    # 初回実行時にシークレットキーを自動生成（以降はファイルから読み込み）
+    async with Database("app.db", secret_key="secret.key") as db:
+        # db.users / db.groups ですぐに使える
+        user = await db.users.create("alice", "password123")
+        group = await db.groups.create("admins")
 
 asyncio.run(main())
 ```
@@ -37,38 +37,38 @@ asyncio.run(main())
 
 ```python
 # 作成
-user = await user_mgr.create("alice", "password123", display_name="Alice")
+user = await db.users.create("alice", "password123", display_name="Alice")
 
 # 取得
-user = await user_mgr.get_by_id(1)
-user = await user_mgr.get_by_username("alice")
+user = await db.users.get_by_id(1)
+user = await db.users.get_by_username("alice")
 
 # 一覧
-users = await user_mgr.list_all()
+users = await db.users.list_all()
 
 # 更新（パスワード変更など）
-await user_mgr.update(user.id, password="new_password")
-await user_mgr.update(user.id, display_name="Alice Smith")
+await db.users.update(user.id, password="new_password")
+await db.users.update(user.id, display_name="Alice Smith")
 
 # 無効化
-await user_mgr.update(user.id, is_active=False)
+await db.users.update(user.id, is_active=False)
 
 # 削除
-await user_mgr.delete(user.id)
+await db.users.delete(user.id)
 ```
 
 ### 認証・トークン
 
 ```python
 # ログイン認証（成功時にJWTトークンを返す、失敗時はNone）
-token = await user_mgr.authenticate("alice", "password123")
+token = await db.users.authenticate("alice", "password123")
 
 # トークンの有効期限を指定
 from datetime import timedelta
-token = await user_mgr.authenticate("alice", "password123", expires_delta=timedelta(hours=24))
+token = await db.users.authenticate("alice", "password123", expires_delta=timedelta(hours=24))
 
 # トークン検証
-payload = token_mgr.verify_token(token)
+payload = db.token_manager.verify_token(token)
 print(payload["sub"])       # ユーザーID（文字列）
 print(payload["username"])  # ユーザー名
 ```
@@ -77,36 +77,36 @@ print(payload["username"])  # ユーザー名
 
 ```python
 # 作成
-group = await group_mgr.create("admins", description="Administrator group")
+group = await db.groups.create("admins", description="Administrator group")
 
 # 取得
-group = await group_mgr.get_by_id(1)
-group = await group_mgr.get_by_name("admins")
+group = await db.groups.get_by_id(1)
+group = await db.groups.get_by_name("admins")
 
 # 一覧
-groups = await group_mgr.list_all()
+groups = await db.groups.list_all()
 
 # 更新
-await group_mgr.update(group.id, description="Updated description")
+await db.groups.update(group.id, description="Updated description")
 
 # 削除
-await group_mgr.delete(group.id)
+await db.groups.delete(group.id)
 ```
 
 ### グループメンバー管理
 
 ```python
 # ユーザーをグループに追加
-await group_mgr.add_user(group.id, user.id)
+await db.groups.add_user(group.id, user.id)
 
 # ユーザーをグループから削除
-await group_mgr.remove_user(group.id, user.id)
+await db.groups.remove_user(group.id, user.id)
 
 # グループのメンバー一覧
-members = await group_mgr.get_members(group.id)
+members = await db.groups.get_members(group.id)
 
 # ユーザーの所属グループ一覧
-groups = await group_mgr.get_user_groups(user.id)
+groups = await db.groups.get_user_groups(user.id)
 ```
 
 ### FastAPI連携
@@ -116,12 +116,9 @@ groups = await group_mgr.get_user_groups(user.id)
 ```python
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from user_permission import (
-    Database, TokenManager, UserManager, GroupManager, create_router,
-)
+from user_permission import Database, create_router
 
-db = Database("app.db")
-token_mgr = TokenManager.from_file("secret.key")
+db = Database("app.db", secret_key="secret.key")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -130,12 +127,7 @@ async def lifespan(app: FastAPI):
     await db.close()
 
 app = FastAPI(lifespan=lifespan)
-
-user_mgr = UserManager(db, token_mgr)
-group_mgr = GroupManager(db, user_mgr)
-
-router = create_router(db, token_mgr, user_mgr, group_mgr, prefix="/api")
-app.include_router(router)
+app.include_router(create_router(db, prefix="/api"))
 ```
 
 #### エンドポイント一覧

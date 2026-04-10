@@ -1,6 +1,8 @@
 import aiosqlite
 from pathlib import Path
 
+from .token import TokenManager
+
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -33,9 +35,23 @@ CREATE TABLE IF NOT EXISTS user_groups (
 
 
 class Database:
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, secret_key: str | Path | None = None) -> None:
         self._db_path = str(db_path)
         self._connection: aiosqlite.Connection | None = None
+        self._token_manager: TokenManager | None = None
+        if secret_key is not None:
+            self._token_manager = TokenManager.from_file(secret_key)
+
+        from .user import UserManager
+        from .group import GroupManager
+        self.users: UserManager = UserManager(self)
+        self.groups: GroupManager = GroupManager(self)
+
+    @property
+    def token_manager(self) -> TokenManager:
+        if self._token_manager is None:
+            raise RuntimeError("No secret key was provided to Database().")
+        return self._token_manager
 
     async def connect(self) -> None:
         self._connection = await aiosqlite.connect(self._db_path)

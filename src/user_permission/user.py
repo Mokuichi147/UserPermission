@@ -4,7 +4,6 @@ from typing import Any
 
 from .database import Database
 from .password import hash_password, verify_password
-from .token import TokenManager
 
 
 @dataclass
@@ -16,14 +15,9 @@ class User:
     created_at: str
     updated_at: str
 
-
-class UserManager:
-    def __init__(self, db: Database, token_manager: TokenManager) -> None:
-        self._db = db
-        self._token_manager = token_manager
-
-    def _row_to_user(self, row: Any) -> User:
-        return User(
+    @classmethod
+    def from_row(cls, row: Any) -> "User":
+        return cls(
             id=row["id"],
             username=row["username"],
             display_name=row["display_name"],
@@ -31,6 +25,11 @@ class UserManager:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+
+class UserManager:
+    def __init__(self, db: Database) -> None:
+        self._db = db
 
     async def create(
         self, username: str, password: str, display_name: str = ""
@@ -45,7 +44,7 @@ class UserManager:
         row = await (
             await conn.execute("SELECT * FROM users WHERE id = ?", (cursor.lastrowid,))
         ).fetchone()
-        return self._row_to_user(row)
+        return User.from_row(row)
 
     async def get_by_id(self, user_id: int) -> User | None:
         row = await (
@@ -53,7 +52,7 @@ class UserManager:
                 "SELECT * FROM users WHERE id = ?", (user_id,)
             )
         ).fetchone()
-        return self._row_to_user(row) if row else None
+        return User.from_row(row) if row else None
 
     async def get_by_username(self, username: str) -> User | None:
         row = await (
@@ -61,13 +60,13 @@ class UserManager:
                 "SELECT * FROM users WHERE username = ?", (username,)
             )
         ).fetchone()
-        return self._row_to_user(row) if row else None
+        return User.from_row(row) if row else None
 
     async def list_all(self) -> list[User]:
         rows = await (
             await self._db.connection.execute("SELECT * FROM users ORDER BY id")
         ).fetchall()
-        return [self._row_to_user(r) for r in rows]
+        return [User.from_row(r) for r in rows]
 
     async def update(
         self,
@@ -123,7 +122,7 @@ class UserManager:
         ).fetchone()
         if row is None or not verify_password(password, row["password_hash"]):
             return None
-        return self._token_manager.create_token(
+        return self._db.token_manager.create_token(
             user_id=row["id"],
             username=row["username"],
             expires_delta=expires_delta,
