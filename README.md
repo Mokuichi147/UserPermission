@@ -13,6 +13,12 @@ uv sync
 
 # FastAPI連携を使う場合
 uv sync --extra fastapi
+
+# サーバーとして起動する場合（uvicorn含む）
+uv sync --extra server
+
+# リレークライアントを使う場合（httpx含む）
+uv sync --extra relay
 ```
 
 ## 使い方
@@ -109,6 +115,77 @@ members = await db.groups.get_members(group.id)
 groups = await db.groups.get_user_groups(user.id)
 ```
 
+### サーバー起動
+
+`user-permission[server]` でインストールすると、CLIからサーバーを起動できます。
+
+```bash
+uv run user-permission serve --host localhost --port 8001
+```
+
+| オプション | デフォルト | 説明 |
+|---|---|---|
+| `--host` | `127.0.0.1` | バインドアドレス |
+| `--port` | `8000` | バインドポート |
+| `--database` | `user_permission.db` | SQLiteデータベースのパス |
+| `--secret` | `secret.key` | シークレットキーファイルのパス |
+| `--prefix` | (なし) | APIルートプレフィックス（例: `/api`） |
+
+### リレー（中継）
+
+`user-permission[relay]` でインストールすると、他のアプリから中央のUserPermissionサーバーへ中継できます。
+`connect()` に渡すパスを変えるだけで、ローカルDBとリレーを切り替えられます。
+
+```python
+from user_permission import connect
+
+# ファイルパス → ローカルDB
+backend = connect("app.db", secret="secret.key")
+
+# URL → リレー（リモートサーバーへ中継）
+backend = connect("http://localhost:8001")
+```
+
+#### RelayClient（プログラム的な中継）
+
+```python
+from user_permission.relay import RelayClient
+
+async with RelayClient("http://localhost:8001") as relay:
+    # ログイン
+    token = await relay.login("alice", "password123")
+
+    # トークン検証
+    user = await relay.verify_token(token)
+
+    # ユーザー・グループ操作（認証トークン付き）
+    users = await relay.users.list_all(token)
+    group = await relay.groups.create("admins", "Admin group", token)
+    await relay.groups.add_user(group.id, user.id, token)
+```
+
+#### リレールーター（FastAPIアプリに中継ルーターをマウント）
+
+別のFastAPIアプリにマウントすると、全リクエストが中央サーバーへ透過的に中継されます。
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from user_permission.relay import RelayClient, create_relay_router
+
+relay = RelayClient("http://localhost:8001")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await relay.connect()
+    yield
+    await relay.close()
+
+app = FastAPI(lifespan=lifespan)
+app.include_router(create_relay_router(relay, prefix="/auth"))
+# /auth/token, /auth/me, /auth/users, ... が全て中央サーバーへ中継される
+```
+
 ### FastAPI連携
 
 `user-permission[fastapi]` でインストールすると、ルーターを追加するだけでREST APIが使えます。
@@ -170,6 +247,13 @@ app.include_router(create_router(db, prefix="/api"))
 オプション（`user-permission[fastapi]`）:
 - [FastAPI](https://pypi.org/project/fastapi/) - Web APIフレームワーク
 - [python-multipart](https://pypi.org/project/python-multipart/) - フォームデータ解析
+
+オプション（`user-permission[server]`）:
+- 上記FastAPI依存に加えて:
+- [uvicorn](https://pypi.org/project/uvicorn/) - ASGIサーバー
+
+オプション（`user-permission[relay]`）:
+- [httpx](https://pypi.org/project/httpx/) - 非同期HTTPクライアント
 
 ## ライセンス
 
