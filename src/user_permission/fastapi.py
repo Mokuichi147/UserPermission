@@ -6,9 +6,8 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
 from .database import Database
-from .group import Group, GroupManager
-from .token import TokenManager
-from .user import User, UserManager
+from .group import Group
+from .user import User
 
 
 # --- Pydantic schemas ---
@@ -93,9 +92,6 @@ def _group_response(group: Group) -> GroupResponse:
 
 def create_router(
     db: Database,
-    token_manager: TokenManager,
-    user_manager: UserManager,
-    group_manager: GroupManager,
     *,
     prefix: str = "",
     token_url: str = "/token",
@@ -106,14 +102,14 @@ def create_router(
 
     async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         try:
-            payload: dict[str, Any] = token_manager.verify_token(token)
+            payload: dict[str, Any] = db.token_manager.verify_token(token)
         except Exception:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        user = await user_manager.get_by_id(int(payload["sub"]))
+        user = await db.users.get_by_id(int(payload["sub"]))
         if user is None or not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -125,7 +121,7 @@ def create_router(
 
     @router.post(token_url, response_model=TokenResponse)
     async def login(form: OAuth2PasswordRequestForm = Depends()) -> TokenResponse:
-        token = await user_manager.authenticate(
+        token = await db.users.authenticate(
             form.username, form.password, expires_delta=token_expires
         )
         if token is None:
@@ -147,7 +143,7 @@ def create_router(
     @router.post("/users", response_model=UserResponse, status_code=201)
     async def create_user(body: UserCreate) -> UserResponse:
         try:
-            user = await user_manager.create(
+            user = await db.users.create(
                 body.username, body.password, body.display_name
             )
         except Exception:
@@ -161,14 +157,14 @@ def create_router(
     async def list_users(
         _: User = Depends(get_current_user),
     ) -> list[UserResponse]:
-        users = await user_manager.list_all()
+        users = await db.users.list_all()
         return [_user_response(u) for u in users]
 
     @router.get("/users/{user_id}", response_model=UserResponse)
     async def get_user(
         user_id: int, _: User = Depends(get_current_user)
     ) -> UserResponse:
-        user = await user_manager.get_by_id(user_id)
+        user = await db.users.get_by_id(user_id)
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         return _user_response(user)
@@ -181,7 +177,7 @@ def create_router(
     ) -> UserResponse:
         if current_user.id != user_id:
             raise HTTPException(status_code=403, detail="Cannot update other users")
-        user = await user_manager.update(
+        user = await db.users.update(
             user_id,
             username=body.username,
             password=body.password,
@@ -198,7 +194,7 @@ def create_router(
     ) -> None:
         if current_user.id != user_id:
             raise HTTPException(status_code=403, detail="Cannot delete other users")
-        if not await user_manager.delete(user_id):
+        if not await db.users.delete(user_id):
             raise HTTPException(status_code=404, detail="User not found")
 
     # --- Groups ---
@@ -208,7 +204,7 @@ def create_router(
         body: GroupCreate, _: User = Depends(get_current_user)
     ) -> GroupResponse:
         try:
-            group = await group_manager.create(body.name, body.description)
+            group = await db.groups.create(body.name, body.description)
         except Exception:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -220,14 +216,14 @@ def create_router(
     async def list_groups(
         _: User = Depends(get_current_user),
     ) -> list[GroupResponse]:
-        groups = await group_manager.list_all()
+        groups = await db.groups.list_all()
         return [_group_response(g) for g in groups]
 
     @router.get("/groups/{group_id}", response_model=GroupResponse)
     async def get_group(
         group_id: int, _: User = Depends(get_current_user)
     ) -> GroupResponse:
-        group = await group_manager.get_by_id(group_id)
+        group = await db.groups.get_by_id(group_id)
         if group is None:
             raise HTTPException(status_code=404, detail="Group not found")
         return _group_response(group)
@@ -238,7 +234,7 @@ def create_router(
         body: GroupUpdate,
         _: User = Depends(get_current_user),
     ) -> GroupResponse:
-        group = await group_manager.update(
+        group = await db.groups.update(
             group_id, name=body.name, description=body.description
         )
         if group is None:
@@ -249,7 +245,7 @@ def create_router(
     async def delete_group(
         group_id: int, _: User = Depends(get_current_user)
     ) -> None:
-        if not await group_manager.delete(group_id):
+        if not await db.groups.delete(group_id):
             raise HTTPException(status_code=404, detail="Group not found")
 
     # --- Group members ---
@@ -262,7 +258,7 @@ def create_router(
     ) -> dict[str, str]:
         if body.group_id != group_id:
             raise HTTPException(status_code=400, detail="group_id mismatch")
-        if not await group_manager.add_user(group_id, body.user_id):
+        if not await db.groups.add_user(group_id, body.user_id):
             raise HTTPException(status_code=409, detail="Already a member")
         return {"detail": "Member added"}
 
@@ -272,21 +268,21 @@ def create_router(
         user_id: int,
         _: User = Depends(get_current_user),
     ) -> None:
-        if not await group_manager.remove_user(group_id, user_id):
+        if not await db.groups.remove_user(group_id, user_id):
             raise HTTPException(status_code=404, detail="Member not found")
 
     @router.get("/groups/{group_id}/members", response_model=list[UserResponse])
     async def list_members(
         group_id: int, _: User = Depends(get_current_user)
     ) -> list[UserResponse]:
-        members = await group_manager.get_members(group_id)
+        members = await db.groups.get_members(group_id)
         return [_user_response(u) for u in members]
 
     @router.get("/users/{user_id}/groups", response_model=list[GroupResponse])
     async def list_user_groups(
         user_id: int, _: User = Depends(get_current_user)
     ) -> list[GroupResponse]:
-        groups = await group_manager.get_user_groups(user_id)
+        groups = await db.groups.get_user_groups(user_id)
         return [_group_response(g) for g in groups]
 
     return router
