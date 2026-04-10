@@ -8,3 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# SQLite runtime files
+*.db
+*.db-shm
+*.db-wal
+*.key
