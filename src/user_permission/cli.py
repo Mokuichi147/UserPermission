@@ -19,14 +19,15 @@ def main() -> None:
         "--port", type=int, default=8000, help="Bind port (default: 8000)"
     )
     serve.add_argument(
-        "--database",
+        "--backend",
         default="user_permission.db",
-        help="SQLite database path (default: user_permission.db)",
+        help="File path for local DB, or URL for relay "
+        "(default: user_permission.db)",
     )
     serve.add_argument(
         "--secret",
         default="secret.key",
-        help="Secret-key file path (default: secret.key)",
+        help="Secret-key file path, local mode only (default: secret.key)",
     )
     serve.add_argument(
         "--prefix", default="", help="API route prefix (e.g. /api)"
@@ -55,7 +56,7 @@ def _run_serve(args: argparse.Namespace) -> None:
     from .server import create_app
 
     app = create_app(
-        database=args.database,
+        backend=args.backend,
         secret=args.secret,
         prefix=args.prefix,
     )
