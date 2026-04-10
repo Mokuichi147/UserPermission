@@ -15,10 +15,21 @@ dependencies = [
     "pyjwt>=2.12.1",
 ]
 
+[project.scripts]
+user-permission = "user_permission.cli:main"
+
 [project.optional-dependencies]
 fastapi = [
     "fastapi>=0.115.0",
     "python-multipart>=0.0.18",
+]
+server = [
+    "fastapi>=0.115.0",
+    "python-multipart>=0.0.18",
+    "uvicorn>=0.34.0",
+]
+relay = [
+    "httpx>=0.28.0",
 ]
 
 [build-system]
