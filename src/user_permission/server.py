@@ -26,7 +26,7 @@ def create_app(
     prefix:
         URL prefix for all API routes (e.g. ``"/api"``).
     """
-    db = Database(database, secret_key=secret)
+    db = Database(database, secret=secret)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:

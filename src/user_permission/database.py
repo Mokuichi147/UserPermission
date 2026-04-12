@@ -1,7 +1,15 @@
-import aiosqlite
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+import aiosqlite
 
 from .token import TokenManager
+
+if TYPE_CHECKING:
+    from .group import GroupManager
+    from .user import UserManager
 
 
 _SCHEMA_SQL = """
@@ -34,23 +42,68 @@ CREATE TABLE IF NOT EXISTS user_groups (
 """
 
 
+def _is_url(backend: str | Path) -> bool:
+    return str(backend).startswith(("http://", "https://"))
+
+
 class Database:
-    def __init__(self, db_path: str | Path, secret_key: str | Path | None = None) -> None:
-        self._db_path = str(db_path)
+    """ユーザー権限バックエンドの統一エントリポイント。
+
+    * ファイルパス(例: ``"app.db"``) → ローカル SQLite データベース
+    * URL(例: ``"http://localhost:8001"``) → リモートサーバーへの HTTP リレー
+
+    どちらの場合も ``db.users`` / ``db.groups`` で同じ操作 API が使えます。
+    """
+
+    def __new__(
+        cls, backend: str | Path, *, secret: str | Path | None = None
+    ) -> "Database":
+        if cls is not Database:
+            return super().__new__(cls)
+        if _is_url(backend):
+            if secret is not None:
+                raise ValueError(
+                    "secret は HTTP バックエンドでは利用できません"
+                )
+            from .relay import _RelayDatabase
+
+            return super().__new__(_RelayDatabase)
+        return super().__new__(_LocalDatabase)
+
+    async def connect(self) -> None:
+        raise NotImplementedError
+
+    async def close(self) -> None:
+        raise NotImplementedError
+
+    async def __aenter__(self) -> "Database":
+        await self.connect()
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.close()
+
+
+class _LocalDatabase(Database):
+    def __init__(
+        self, backend: str | Path, *, secret: str | Path | None = None
+    ) -> None:
+        self._db_path = str(backend)
         self._connection: aiosqlite.Connection | None = None
         self._token_manager: TokenManager | None = None
-        if secret_key is not None:
-            self._token_manager = TokenManager.from_file(secret_key)
+        if secret is not None:
+            self._token_manager = TokenManager.from_file(secret)
 
-        from .user import UserManager
         from .group import GroupManager
+        from .user import UserManager
+
         self.users: UserManager = UserManager(self)
         self.groups: GroupManager = GroupManager(self)
 
     @property
     def token_manager(self) -> TokenManager:
         if self._token_manager is None:
-            raise RuntimeError("No secret key was provided to Database().")
+            raise RuntimeError("Database() に secret が渡されていません。")
         return self._token_manager
 
     async def connect(self) -> None:
@@ -69,12 +122,7 @@ class Database:
     @property
     def connection(self) -> aiosqlite.Connection:
         if self._connection is None:
-            raise RuntimeError("Database is not connected. Call connect() first.")
+            raise RuntimeError(
+                "Database is not connected. Call connect() first."
+            )
         return self._connection
-
-    async def __aenter__(self) -> "Database":
-        await self.connect()
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        await self.close()

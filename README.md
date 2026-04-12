@@ -31,7 +31,7 @@ from user_permission import Database
 
 async def main():
     # 初回実行時にシークレットキーを自動生成（以降はファイルから読み込み）
-    async with Database("app.db", secret_key="secret.key") as db:
+    async with Database("app.db", secret="secret.key") as db:
         # db.users / db.groups ですぐに使える
         user = await db.users.create("alice", "password123")
         group = await db.groups.create("admins")
@@ -133,35 +133,33 @@ uv run user-permission serve --host localhost --port 8001
 
 ### リレー（中継）
 
-`user-permission[relay]` でインストールすると、他のアプリから中央のUserPermissionサーバーへ中継できます。
-`connect()` に渡すパスを変えるだけで、ローカルDBとリレーを切り替えられます。
+`user-permission[relay]` でインストールすると、`Database` に URL を渡すだけで、
+ローカル SQLite と中央の UserPermission サーバーを同じインターフェースで切り替えられます。
 
 ```python
-from user_permission import connect
+from user_permission import Database
 
-# ファイルパス → ローカルDB
-backend = connect("app.db", secret="secret.key")
+# ファイルパス → ローカル SQLite
+db = Database("app.db", secret="secret.key")
 
-# URL → リレー（リモートサーバーへ中継）
-backend = connect("http://localhost:8001")
+# URL → リレー（リモートサーバーへ HTTP 中継）
+db = Database("http://localhost:8001")
 ```
 
-#### RelayClient（プログラム的な中継）
+どちらでも `db.users` / `db.groups` の API は共通です。
 
 ```python
-from user_permission.relay import RelayClient
-
-async with RelayClient("http://localhost:8001") as relay:
+async with Database("http://localhost:8001") as db:
     # ログイン
-    token = await relay.login("alice", "password123")
+    token = await db.users.authenticate("alice", "password123")
 
     # トークン検証
-    user = await relay.verify_token(token)
+    user = await db.verify_token(token)
 
     # ユーザー・グループ操作（認証トークン付き）
-    users = await relay.users.list_all(token)
-    group = await relay.groups.create("admins", "Admin group", token)
-    await relay.groups.add_user(group.id, user.id, token)
+    users = await db.users.list_all(token)
+    group = await db.groups.create("admins", "Admin group", token)
+    await db.groups.add_user(group.id, user.id, token)
 ```
 
 #### リレールーター（FastAPIアプリに中継ルーターをマウント）
@@ -171,18 +169,18 @@ async with RelayClient("http://localhost:8001") as relay:
 ```python
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from user_permission.relay import RelayClient, create_relay_router
+from user_permission import Database, create_relay_router
 
-relay = RelayClient("http://localhost:8001")
+db = Database("http://localhost:8001")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await relay.connect()
+    await db.connect()
     yield
-    await relay.close()
+    await db.close()
 
 app = FastAPI(lifespan=lifespan)
-app.include_router(create_relay_router(relay, prefix="/auth"))
+app.include_router(create_relay_router(db, prefix="/auth"))
 # /auth/token, /auth/me, /auth/users, ... が全て中央サーバーへ中継される
 ```
 
@@ -195,7 +193,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from user_permission import Database, create_router
 
-db = Database("app.db", secret_key="secret.key")
+db = Database("app.db", secret="secret.key")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
