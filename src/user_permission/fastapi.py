@@ -31,6 +31,7 @@ class UserResponse(BaseModel):
     username: str
     display_name: str
     is_active: bool
+    is_admin: bool
     created_at: str
     updated_at: str
 
@@ -38,17 +39,20 @@ class UserResponse(BaseModel):
 class GroupCreate(BaseModel):
     name: str
     description: str = ""
+    is_admin: bool = False
 
 
 class GroupUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
+    is_admin: bool | None = None
 
 
 class GroupResponse(BaseModel):
     id: int
     name: str
     description: str
+    is_admin: bool
     created_at: str
     updated_at: str
 
@@ -66,12 +70,13 @@ class GroupMember(BaseModel):
 # --- Helper ---
 
 
-def _user_response(user: User) -> UserResponse:
+def _user_response(user: User, is_admin: bool) -> UserResponse:
     return UserResponse(
         id=user.id,
         username=user.username,
         display_name=user.display_name,
         is_active=user.is_active,
+        is_admin=is_admin,
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
@@ -82,6 +87,7 @@ def _group_response(group: Group) -> GroupResponse:
         id=group.id,
         name=group.name,
         description=group.description,
+        is_admin=group.is_admin,
         created_at=group.created_at,
         updated_at=group.updated_at,
     )
@@ -117,6 +123,16 @@ def create_router(
             )
         return user
 
+    async def get_admin_user(
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        if not await db.users.is_admin(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin privileges required",
+            )
+        return current_user
+
     # --- Auth ---
 
     @router.post(token_url, response_model=TokenResponse)
@@ -136,7 +152,8 @@ def create_router(
     async def read_current_user(
         current_user: User = Depends(get_current_user),
     ) -> UserResponse:
-        return _user_response(current_user)
+        is_admin = await db.users.is_admin(current_user.id)
+        return _user_response(current_user, is_admin)
 
     # --- Users ---
 
@@ -151,14 +168,15 @@ def create_router(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Username already exists",
             )
-        return _user_response(user)
+        is_admin = await db.users.is_admin(user.id)
+        return _user_response(user, is_admin)
 
     @router.get("/users", response_model=list[UserResponse])
     async def list_users(
         _: User = Depends(get_current_user),
     ) -> list[UserResponse]:
         users = await db.users.list_all()
-        return [_user_response(u) for u in users]
+        return [_user_response(u, await db.users.is_admin(u.id)) for u in users]
 
     @router.get("/users/{user_id}", response_model=UserResponse)
     async def get_user(
@@ -167,7 +185,7 @@ def create_router(
         user = await db.users.get_by_id(user_id)
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
-        return _user_response(user)
+        return _user_response(user, await db.users.is_admin(user.id))
 
     @router.patch("/users/{user_id}", response_model=UserResponse)
     async def update_user(
@@ -175,25 +193,37 @@ def create_router(
         body: UserUpdate,
         current_user: User = Depends(get_current_user),
     ) -> UserResponse:
-        if current_user.id != user_id:
-            raise HTTPException(status_code=403, detail="Cannot update other users")
-        user = await db.users.update(
-            user_id,
-            username=body.username,
-            password=body.password,
-            display_name=body.display_name,
-            is_active=body.is_active,
-        )
+        caller_is_admin = await db.users.is_admin(current_user.id)
+        if current_user.id != user_id and not caller_is_admin:
+            raise HTTPException(
+                status_code=403, detail="Admin privileges required"
+            )
+        try:
+            user = await db.users.update(
+                user_id,
+                username=body.username,
+                password=body.password,
+                display_name=body.display_name,
+                is_active=body.is_active,
+            )
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Username already exists",
+            )
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
-        return _user_response(user)
+        return _user_response(user, await db.users.is_admin(user.id))
 
     @router.delete("/users/{user_id}", status_code=204)
     async def delete_user(
         user_id: int, current_user: User = Depends(get_current_user)
     ) -> None:
-        if current_user.id != user_id:
-            raise HTTPException(status_code=403, detail="Cannot delete other users")
+        caller_is_admin = await db.users.is_admin(current_user.id)
+        if current_user.id != user_id and not caller_is_admin:
+            raise HTTPException(
+                status_code=403, detail="Admin privileges required"
+            )
         if not await db.users.delete(user_id):
             raise HTTPException(status_code=404, detail="User not found")
 
@@ -201,10 +231,12 @@ def create_router(
 
     @router.post("/groups", response_model=GroupResponse, status_code=201)
     async def create_group(
-        body: GroupCreate, _: User = Depends(get_current_user)
+        body: GroupCreate, _: User = Depends(get_admin_user)
     ) -> GroupResponse:
         try:
-            group = await db.groups.create(body.name, body.description)
+            group = await db.groups.create(
+                body.name, body.description, is_admin=body.is_admin
+            )
         except Exception:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -232,10 +264,13 @@ def create_router(
     async def update_group(
         group_id: int,
         body: GroupUpdate,
-        _: User = Depends(get_current_user),
+        _: User = Depends(get_admin_user),
     ) -> GroupResponse:
         group = await db.groups.update(
-            group_id, name=body.name, description=body.description
+            group_id,
+            name=body.name,
+            description=body.description,
+            is_admin=body.is_admin,
         )
         if group is None:
             raise HTTPException(status_code=404, detail="Group not found")
@@ -243,7 +278,7 @@ def create_router(
 
     @router.delete("/groups/{group_id}", status_code=204)
     async def delete_group(
-        group_id: int, _: User = Depends(get_current_user)
+        group_id: int, _: User = Depends(get_admin_user)
     ) -> None:
         if not await db.groups.delete(group_id):
             raise HTTPException(status_code=404, detail="Group not found")
@@ -254,7 +289,7 @@ def create_router(
     async def add_member(
         group_id: int,
         body: GroupMember,
-        _: User = Depends(get_current_user),
+        _: User = Depends(get_admin_user),
     ) -> dict[str, str]:
         if body.group_id != group_id:
             raise HTTPException(status_code=400, detail="group_id mismatch")
@@ -266,7 +301,7 @@ def create_router(
     async def remove_member(
         group_id: int,
         user_id: int,
-        _: User = Depends(get_current_user),
+        _: User = Depends(get_admin_user),
     ) -> None:
         if not await db.groups.remove_user(group_id, user_id):
             raise HTTPException(status_code=404, detail="Member not found")
@@ -276,7 +311,9 @@ def create_router(
         group_id: int, _: User = Depends(get_current_user)
     ) -> list[UserResponse]:
         members = await db.groups.get_members(group_id)
-        return [_user_response(u) for u in members]
+        return [
+            _user_response(u, await db.users.is_admin(u.id)) for u in members
+        ]
 
     @router.get("/users/{user_id}/groups", response_model=list[GroupResponse])
     async def list_user_groups(

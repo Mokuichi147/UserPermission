@@ -40,6 +40,7 @@ def _group_from_dict(data: dict[str, Any]) -> Group:
         id=data["id"],
         name=data["name"],
         description=data["description"],
+        is_admin=data.get("is_admin", False),
         created_at=data["created_at"],
         updated_at=data["updated_at"],
     )
@@ -163,6 +164,14 @@ class _RelayUserManager:
         )
         return resp.status_code == 204
 
+    async def is_admin(self, user_id: int, token: str) -> bool:
+        resp = await self._database.client.get(
+            f"/users/{user_id}", headers=_bearer(token)
+        )
+        if resp.status_code == 200:
+            return bool(resp.json().get("is_admin", False))
+        return False
+
     async def authenticate(self, username: str, password: str) -> str | None:
         return await self._database.login(username, password)
 
@@ -172,11 +181,20 @@ class _RelayGroupManager:
         self._database = database
 
     async def create(
-        self, name: str, description: str, token: str
+        self,
+        name: str,
+        description: str,
+        token: str,
+        *,
+        is_admin: bool = False,
     ) -> Group | None:
         resp = await self._database.client.post(
             "/groups",
-            json={"name": name, "description": description},
+            json={
+                "name": name,
+                "description": description,
+                "is_admin": is_admin,
+            },
             headers=_bearer(token),
         )
         if resp.status_code == 201:
@@ -206,12 +224,15 @@ class _RelayGroupManager:
         *,
         name: str | None = None,
         description: str | None = None,
+        is_admin: bool | None = None,
     ) -> Group | None:
         body: dict[str, Any] = {}
         if name is not None:
             body["name"] = name
         if description is not None:
             body["description"] = description
+        if is_admin is not None:
+            body["is_admin"] = is_admin
         resp = await self._database.client.patch(
             f"/groups/{group_id}", json=body, headers=_bearer(token)
         )

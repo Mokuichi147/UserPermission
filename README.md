@@ -210,21 +210,57 @@ app.include_router(create_router(db, prefix="/api"))
 | メソッド | パス | 説明 | 認証 |
 |---|---|---|---|
 | POST | `/api/token` | ログイン（トークン取得） | 不要 |
-| GET | `/api/me` | 現在のユーザー情報 | 必要 |
+| GET | `/api/me` | 現在のユーザー情報（`is_admin` を含む） | 必要 |
 | POST | `/api/users` | ユーザー作成 | 不要 |
 | GET | `/api/users` | ユーザー一覧 | 必要 |
 | GET | `/api/users/{id}` | ユーザー取得 | 必要 |
-| PATCH | `/api/users/{id}` | ユーザー更新（本人のみ） | 必要 |
-| DELETE | `/api/users/{id}` | ユーザー削除（本人のみ） | 必要 |
-| POST | `/api/groups` | グループ作成 | 必要 |
+| PATCH | `/api/users/{id}` | ユーザー更新 | 本人 or 管理者 |
+| DELETE | `/api/users/{id}` | ユーザー削除 | 本人 or 管理者 |
+| POST | `/api/groups` | グループ作成 | 管理者 |
 | GET | `/api/groups` | グループ一覧 | 必要 |
 | GET | `/api/groups/{id}` | グループ取得 | 必要 |
-| PATCH | `/api/groups/{id}` | グループ更新 | 必要 |
-| DELETE | `/api/groups/{id}` | グループ削除 | 必要 |
-| POST | `/api/groups/{id}/members` | メンバー追加 | 必要 |
-| DELETE | `/api/groups/{id}/members/{user_id}` | メンバー削除 | 必要 |
+| PATCH | `/api/groups/{id}` | グループ更新 | 管理者 |
+| DELETE | `/api/groups/{id}` | グループ削除 | 管理者 |
+| POST | `/api/groups/{id}/members` | メンバー追加（管理者グループへの追加が昇格） | 管理者 |
+| DELETE | `/api/groups/{id}/members/{user_id}` | メンバー削除（管理者グループから外すと降格） | 管理者 |
 | GET | `/api/groups/{id}/members` | メンバー一覧 | 必要 |
 | GET | `/api/users/{id}/groups` | 所属グループ一覧 | 必要 |
+
+### 管理者ロール
+
+UserPermission サーバー自身の管理権限（ユーザー/グループ/管理者の管理）は `groups.is_admin = 1` のグループで表現します。
+このフラグが立った**管理者グループ**に所属しているユーザーが「UserPermission 管理者」です。
+
+- 管理者は他ユーザーの編集・削除、グループの作成・更新・削除、メンバー管理が可能
+- 他ユーザーの管理者昇格/降格は、管理者グループへの加入/脱退で行う
+- 管理者グループは複数作れる（運用で分けたい場合）
+- **消費サービス側の「アプリ管理者」などの概念はこの権限とは別**で、通常のグループ（`is_admin = 0`）で自由に表現してください
+
+#### 初回セットアップ
+
+最初に作成されたユーザーは**自動的に管理者グループに加入**します。`admin` という名前のグループが無ければ、`is_admin = 1` で新規作成されます。
+
+#### 既存DBのマイグレーション
+
+v0.2.0 以降は起動時に `groups.is_admin` 列の存在を確認し、無ければ `ALTER TABLE` で追加します。既存データは壊しません。
+既存のDBには管理者がまだ存在しないため、Python から手動で昇格させます。
+
+```python
+import asyncio
+from user_permission import Database
+
+async def main():
+    async with Database("app.db", secret="secret.key") as db:
+        # 既存の好きなグループを管理者グループにする
+        group = await db.groups.get_by_name("admins")
+        await db.groups.update(group.id, is_admin=True)
+        # あるいは新規に作って任意ユーザーを加える
+        admin_group = await db.groups.create("admin", "管理者", is_admin=True)
+        user = await db.users.get_by_username("alice")
+        await db.groups.add_user(admin_group.id, user.id)
+
+asyncio.run(main())
+```
 
 ## データベーススキーマ
 

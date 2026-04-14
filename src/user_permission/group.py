@@ -10,6 +10,7 @@ class Group:
     id: int
     name: str
     description: str
+    is_admin: bool
     created_at: str
     updated_at: str
 
@@ -19,6 +20,7 @@ class Group:
             id=row["id"],
             name=row["name"],
             description=row["description"],
+            is_admin=bool(row["is_admin"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -28,11 +30,13 @@ class GroupManager:
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    async def create(self, name: str, description: str = "") -> Group:
+    async def create(
+        self, name: str, description: str = "", *, is_admin: bool = False
+    ) -> Group:
         conn = self._db.connection
         cursor = await conn.execute(
-            "INSERT INTO groups (name, description) VALUES (?, ?)",
-            (name, description),
+            "INSERT INTO groups (name, description, is_admin) VALUES (?, ?, ?)",
+            (name, description, int(is_admin)),
         )
         await conn.commit()
         row = await (
@@ -62,12 +66,21 @@ class GroupManager:
         ).fetchall()
         return [Group.from_row(r) for r in rows]
 
+    async def list_admin_groups(self) -> list[Group]:
+        rows = await (
+            await self._db.connection.execute(
+                "SELECT * FROM groups WHERE is_admin = 1 ORDER BY id"
+            )
+        ).fetchall()
+        return [Group.from_row(r) for r in rows]
+
     async def update(
         self,
         group_id: int,
         *,
         name: str | None = None,
         description: str | None = None,
+        is_admin: bool | None = None,
     ) -> Group | None:
         fields: list[str] = []
         values: list[Any] = []
@@ -77,6 +90,9 @@ class GroupManager:
         if description is not None:
             fields.append("description = ?")
             values.append(description)
+        if is_admin is not None:
+            fields.append("is_admin = ?")
+            values.append(int(is_admin))
         if not fields:
             return await self.get_by_id(group_id)
         fields.append("updated_at = datetime('now')")

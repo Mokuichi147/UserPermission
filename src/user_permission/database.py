@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL DEFAULT '',
+    is_admin INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -112,7 +113,17 @@ class _LocalDatabase(Database):
         await self._connection.execute("PRAGMA journal_mode=WAL")
         await self._connection.execute("PRAGMA foreign_keys=ON")
         await self._connection.executescript(_SCHEMA_SQL)
+        await self._migrate()
         await self._connection.commit()
+
+    async def _migrate(self) -> None:
+        conn = self._connection
+        assert conn is not None
+        cols = await (await conn.execute("PRAGMA table_info(groups)")).fetchall()
+        if not any(c["name"] == "is_admin" for c in cols):
+            await conn.execute(
+                "ALTER TABLE groups ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"
+            )
 
     async def close(self) -> None:
         if self._connection:
