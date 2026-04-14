@@ -30,3 +30,10 @@ try:
     __all__ += ["create_relay_router"]
 except ImportError:
     pass
+
+try:
+    from .webui import create_webui_router as create_webui_router
+
+    __all__ += ["create_webui_router"]
+except ImportError:
+    pass

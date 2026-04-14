@@ -31,6 +31,16 @@ def main() -> None:
     serve.add_argument(
         "--prefix", default="", help="API route prefix (e.g. /api)"
     )
+    serve.add_argument(
+        "--webui",
+        action="store_true",
+        help="HTMX + Tailwind + Jinja2 の管理画面を有効化する",
+    )
+    serve.add_argument(
+        "--webui-prefix",
+        default="/ui",
+        help="管理画面のURLプレフィックス (default: /ui)",
+    )
 
     args = parser.parse_args()
 
@@ -58,5 +68,7 @@ def _run_serve(args: argparse.Namespace) -> None:
         database=args.database,
         secret=args.secret,
         prefix=args.prefix,
+        webui=args.webui,
+        webui_prefix=args.webui_prefix,
     )
     uvicorn.run(app, host=args.host, port=args.port)

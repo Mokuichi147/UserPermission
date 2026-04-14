@@ -1,5 +1,9 @@
 # UserPermission
 
+![PyPI - License](https://img.shields.io/pypi/l/user-permission?cacheSeconds=0)
+![PyPI - Version](https://img.shields.io/pypi/v/user-permission?cacheSeconds=0)
+![Pepy Total Downloads](https://img.shields.io/pepy/dt/user-permission?cacheSeconds=0)
+
 ユーザーとグループを管理するための非同期Pythonライブラリです。
 
 - **aiosqlite** による非同期SQLiteデータベース管理
@@ -16,6 +20,9 @@ uv sync --extra fastapi
 
 # サーバーとして起動する場合（uvicorn含む）
 uv sync --extra server
+
+# Web管理画面を使う場合（FastAPI + Jinja2 + HTMX + Tailwind CSS）
+uv sync --extra webui
 
 # リレークライアントを使う場合（httpx含む）
 uv sync --extra relay
@@ -130,6 +137,15 @@ uv run user-permission serve --host localhost --port 8001
 | `--database` | `user_permission.db` | SQLiteデータベースのパス |
 | `--secret` | `secret.key` | シークレットキーファイルのパス |
 | `--prefix` | (なし) | APIルートプレフィックス（例: `/api`） |
+| `--webui` | 無効 | Web管理画面（HTMX+Tailwind+Jinja2）を有効化 |
+| `--webui-prefix` | `/ui` | 管理画面のURLプレフィックス |
+
+```bash
+# APIと管理画面を同時に起動
+uv run user-permission serve --prefix /api --webui
+# → API: http://localhost:8000/api/*
+# → 管理画面: http://localhost:8000/ui/
+```
 
 ### リレー（中継）
 
@@ -240,6 +256,12 @@ UserPermission サーバー自身の管理権限（ユーザー/グループ/管
 
 最初に作成されたユーザーは**自動的に管理者グループに加入**します。`admin` という名前のグループが無ければ、`is_admin = 1` で新規作成されます。
 
+```bash
+# 新しいDBで最初のユーザーを登録するだけで管理者になる
+uv run user-permission serve --database app.db --secret secret.key --webui
+# ブラウザで /ui/register から alice を作成 → 自動的に管理者
+```
+
 #### 既存DBのマイグレーション
 
 v0.2.0 以降は起動時に `groups.is_admin` 列の存在を確認し、無ければ `ALTER TABLE` で追加します。既存データは壊しません。
@@ -262,6 +284,62 @@ async def main():
 asyncio.run(main())
 ```
 
+### Web管理画面
+
+`user-permission[webui]` でインストールすると、ブラウザ上でアカウント・グループを管理できる画面が追加されます。
+FastAPI + Jinja2 + HTMX + Tailwind CSS（CDN）で構成されており、`create_webui_router` をマウントするか、
+CLI の `--webui` フラグで有効化できます。
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from user_permission import Database, create_router, create_webui_router
+
+db = Database("app.db", secret="secret.key")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await db.connect()
+    yield
+    await db.close()
+
+app = FastAPI(lifespan=lifespan)
+app.include_router(create_router(db, prefix="/api"))
+app.include_router(create_webui_router(db, prefix="/ui"))
+# → /ui/login, /ui/register, /ui/users, /ui/groups, /ui/me ...
+```
+
+`create_app(webui=True)` を使えばAPIと管理画面を一括で有効化できます。
+
+```python
+from user_permission import create_app
+
+app = create_app(
+    database="app.db",
+    secret="secret.key",
+    prefix="/api",
+    webui=True,
+    webui_prefix="/ui",
+)
+```
+
+#### 画面一覧
+
+| パス | 説明 |
+|---|---|
+| `/ui/login` | ログイン |
+| `/ui/register` | 新規アカウント登録（登録と同時にログイン） |
+| `/ui/logout` | ログアウト（Cookieを破棄） |
+| `/ui/` | ダッシュボード（ユーザー数・グループ数・所属グループ） |
+| `/ui/me` | プロフィール編集 / パスワード変更 / 所属グループ |
+| `/ui/users` | ユーザー一覧・作成（管理者は他ユーザーの編集・削除・有効/無効切替・管理者昇格/降格が可能） |
+| `/ui/groups` | グループ一覧（作成・削除は管理者のみ） |
+| `/ui/groups/{id}` | グループ編集・メンバー追加/削除（管理者のみ） |
+
+認証はHTTPOnly Cookie（JWT）で管理され、トークンの有効期限は `create_webui_router(token_expires=...)` で調整できます（デフォルト24時間）。
+
+管理者グループには一覧で「🔑 管理者」バッジが表示されます。管理者昇格/降格は、ユーザー一覧行のボタンから行えます（内部的には管理者グループへの加入/脱退）。
+
 ## データベーススキーマ
 
 | テーブル | 説明 |
@@ -282,8 +360,12 @@ asyncio.run(main())
 - [FastAPI](https://pypi.org/project/fastapi/) - Web APIフレームワーク
 - [python-multipart](https://pypi.org/project/python-multipart/) - フォームデータ解析
 
-オプション（`user-permission[server]`）:
+オプション（`user-permission[webui]`）:
 - 上記FastAPI依存に加えて:
+- [Jinja2](https://pypi.org/project/Jinja2/) - テンプレートエンジン（HTMX + Tailwind CSS はCDNから配信）
+
+オプション（`user-permission[server]`）:
+- 上記FastAPI・Jinja2依存に加えて:
 - [uvicorn](https://pypi.org/project/uvicorn/) - ASGIサーバー
 
 オプション（`user-permission[relay]`）:
