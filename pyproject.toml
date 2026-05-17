@@ -1,43 +1,53 @@
 [project]
 name = "user-permission"
-version = "0.3.0"
-description = "Add your description here"
+version = "0.4.0"
+description = "Async user / group / permission management library backed by a Rust core (SQLite, Argon2, JWT, optional HTTP relay)"
 readme = "README.md"
 authors = [
     { name = "mokuichi147", email = "38586357+Mokuichi147@users.noreply.github.com" }
 ]
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
-requires-python = ">=3.12.10"
-dependencies = [
-    "aiosqlite>=0.22.1",
-    "pwdlib[argon2]>=0.3.0",
-    "pyjwt>=2.12.1",
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: System :: Systems Administration :: Authentication/Directory",
+    "Framework :: AsyncIO",
 ]
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/mokuichi147/UserPermission"
+"Rust crate" = "https://github.com/mokuichi147/user-permission"
 
 [project.scripts]
-user-permission = "user_permission.cli:main"
-
-[project.optional-dependencies]
-fastapi = [
-    "fastapi>=0.115.0",
-    "python-multipart>=0.0.18",
-]
-webui = [
-    "fastapi>=0.115.0",
-    "python-multipart>=0.0.18",
-    "jinja2>=3.1.0",
-]
-server = [
-    "fastapi>=0.115.0",
-    "python-multipart>=0.0.18",
-    "jinja2>=3.1.0",
-    "uvicorn>=0.34.0",
-]
-relay = [
-    "httpx>=0.28.0",
-]
+user-permission = "user_permission.__main__:main"
 
 [build-system]
-requires = ["uv_build>=0.9.17,<0.10.0"]
-build-backend = "uv_build"
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+python-source = "python"
+manifest-path = "crates/user-permission-python/Cargo.toml"
+module-name = "user_permission._user_permission"
+features = ["pyo3/extension-module"]
+strip = true
+
+[tool.uv]
+# uv can drive maturin via `uv sync` / `uv build`; no extra config needed.
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests/python"]
+# `importlib` mode keeps pytest from prepending the project root to sys.path,
+# which would otherwise shadow the installed wheel with the source-only
+# `python/user_permission/` directory.
+addopts = "--import-mode=importlib"

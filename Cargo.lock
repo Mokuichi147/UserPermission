@@ -2848,6 +2848,7 @@ version = "0.4.0"
 dependencies = [
  "axum",
  "chrono",
+ "jsonwebtoken",
  "pyo3",
  "pyo3-async-runtimes",
  "serde_json",
