@@ -135,3 +135,36 @@ async def test_token_manager_round_trip(db_paths):
     assert claims["sub"] == "42"
     assert claims["username"] == "alice"
     assert claims["role"] == "x"
+
+
+# --- Regression tests for the "no running event loop" trap. ---
+#
+# The Rust extension exposes awaitables via pyo3-async-runtimes' `future_into_py`,
+# which captures the running asyncio loop *at the moment the Rust method is
+# called* — not at await-time. Without the Python wrapper layer, passing an
+# extension awaitable straight to `asyncio.run` would raise
+# `RuntimeError: no running event loop`. These tests pin down that the
+# wrapper layer keeps the natural Python patterns working.
+
+
+def test_asyncio_run_direct_connect(db_paths):
+    """`asyncio.run(db.connect())` must work — db.connect() must build its
+    awaitable inside the loop, not at evaluation time."""
+    import asyncio
+
+    db_path, secret = db_paths
+    db = Database(db_path, secret=secret)
+    asyncio.run(db.connect())
+    asyncio.run(db.close())
+
+
+def test_asyncio_run_direct_user_create(db_paths):
+    """A single-shot `asyncio.run(...)` with a manager call must also work."""
+    import asyncio
+
+    db_path, secret = db_paths
+    db = Database(db_path, secret=secret)
+    asyncio.run(db.connect())
+    user = asyncio.run(db.users.create("alice", "pw", "Alice"))
+    assert user.username == "alice"
+    asyncio.run(db.close())

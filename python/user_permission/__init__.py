@@ -1,23 +1,30 @@
 """Async user / group / permission management library.
 
-The implementation now lives in a Rust extension module
-(``user_permission._user_permission``); this package re-exports its public
-API and adds a small Python entrypoint that calls the bundled server.
+The heavy lifting lives in the Rust extension module
+(``user_permission._user_permission``). This Python layer wraps the
+extension's async methods in ``async def`` thunks so that the awaitable
+itself is constructed inside the running asyncio loop rather than at
+call time. Without this, patterns like ``asyncio.run(db.connect())`` —
+where ``db.connect()`` is evaluated before ``asyncio.run`` starts the
+loop — would raise ``RuntimeError: no running event loop`` because
+``pyo3-async-runtimes::future_into_py`` requires a running loop the
+moment the Rust method is called.
 """
 
 from __future__ import annotations
 
+from datetime import timedelta
+from pathlib import Path
+from typing import Any
+
+from . import _user_permission as _ext
 from ._user_permission import (
-    Database,
     Group,
-    GroupManager,
     TokenManager,
     User,
-    UserManager,
     __version__,
     hash_password,
     load_or_create_secret,
-    serve,
     verify_password,
 )
 
@@ -34,3 +41,193 @@ __all__ = [
     "serve",
     "verify_password",
 ]
+
+
+class UserManager:
+    """Async wrapper around the Rust extension's ``UserManager``."""
+
+    __slots__ = ("_inner",)
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    async def create(
+        self, username: str, password: str, display_name: str = ""
+    ) -> User:
+        return await self._inner.create(username, password, display_name)
+
+    async def get_by_id(self, user_id: int) -> User | None:
+        return await self._inner.get_by_id(user_id)
+
+    async def get_by_username(self, username: str) -> User | None:
+        return await self._inner.get_by_username(username)
+
+    async def list_all(self) -> list[User]:
+        return await self._inner.list_all()
+
+    async def update(
+        self,
+        user_id: int,
+        *,
+        username: str | None = None,
+        password: str | None = None,
+        display_name: str | None = None,
+        is_active: bool | None = None,
+    ) -> User | None:
+        return await self._inner.update(
+            user_id,
+            username=username,
+            password=password,
+            display_name=display_name,
+            is_active=is_active,
+        )
+
+    async def delete(self, user_id: int) -> bool:
+        return await self._inner.delete(user_id)
+
+    async def is_admin(self, user_id: int) -> bool:
+        return await self._inner.is_admin(user_id)
+
+    async def set_admin(self, user_id: int, is_admin: bool) -> bool:
+        return await self._inner.set_admin(user_id, is_admin)
+
+    async def authenticate(
+        self,
+        username: str,
+        password: str,
+        expires_delta: timedelta | None = None,
+    ) -> str | None:
+        return await self._inner.authenticate(
+            username, password, expires_delta=expires_delta
+        )
+
+
+class GroupManager:
+    """Async wrapper around the Rust extension's ``GroupManager``."""
+
+    __slots__ = ("_inner",)
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    async def create(
+        self,
+        name: str,
+        description: str = "",
+        *,
+        is_admin: bool = False,
+    ) -> Group:
+        return await self._inner.create(name, description, is_admin=is_admin)
+
+    async def get_by_id(self, group_id: int) -> Group | None:
+        return await self._inner.get_by_id(group_id)
+
+    async def get_by_name(self, name: str) -> Group | None:
+        return await self._inner.get_by_name(name)
+
+    async def list_all(self) -> list[Group]:
+        return await self._inner.list_all()
+
+    async def list_admin_groups(self) -> list[Group]:
+        return await self._inner.list_admin_groups()
+
+    async def update(
+        self,
+        group_id: int,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        is_admin: bool | None = None,
+    ) -> Group | None:
+        return await self._inner.update(
+            group_id,
+            name=name,
+            description=description,
+            is_admin=is_admin,
+        )
+
+    async def delete(self, group_id: int) -> bool:
+        return await self._inner.delete(group_id)
+
+    async def add_user(self, group_id: int, user_id: int) -> bool:
+        return await self._inner.add_user(group_id, user_id)
+
+    async def remove_user(self, group_id: int, user_id: int) -> bool:
+        return await self._inner.remove_user(group_id, user_id)
+
+    async def get_members(self, group_id: int) -> list[User]:
+        return await self._inner.get_members(group_id)
+
+    async def get_user_groups(self, user_id: int) -> list[Group]:
+        return await self._inner.get_user_groups(user_id)
+
+
+class Database:
+    """Async user / group database with local SQLite or HTTP relay backend."""
+
+    __slots__ = ("_inner", "_users", "_groups")
+
+    def __init__(
+        self,
+        backend: str | Path,
+        *,
+        secret: str | Path | None = None,
+    ) -> None:
+        self._inner = _ext.Database(backend, secret=secret)
+        self._users = UserManager(self._inner.users)
+        self._groups = GroupManager(self._inner.groups)
+
+    async def connect(self) -> None:
+        await self._inner.connect()
+
+    async def close(self) -> None:
+        await self._inner.close()
+
+    async def __aenter__(self) -> "Database":
+        await self._inner.connect()
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self._inner.close()
+
+    async def login(self, username: str, password: str) -> str:
+        return await self._inner.login(username, password)
+
+    @property
+    def users(self) -> UserManager:
+        return self._users
+
+    @property
+    def groups(self) -> GroupManager:
+        return self._groups
+
+    @property
+    def token_manager(self) -> TokenManager:
+        return self._inner.token_manager
+
+
+async def serve(
+    *,
+    database: str | Path = "user_permission.db",
+    secret: str | Path = "secret.key",
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    prefix: str = "",
+    webui: bool = False,
+    webui_prefix: str = "/ui",
+) -> None:
+    """Start the bundled axum HTTP server.
+
+    Wrapping the extension's ``serve`` in a Python ``async def`` lets
+    ``asyncio.run(serve(...))`` work — the inner awaitable is only built
+    once we're inside the running loop.
+    """
+    await _ext.serve(
+        database=str(database),
+        secret=str(secret),
+        host=host,
+        port=port,
+        prefix=prefix,
+        webui=webui,
+        webui_prefix=webui_prefix,
+    )
