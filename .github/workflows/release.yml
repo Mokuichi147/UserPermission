@@ -36,7 +36,7 @@ jobs:
           sccache: ${{ matrix.sccache }}
           before-script-linux: |
             if [ "${{ matrix.target }}" = "aarch64" ]; then
-              export CFLAGS_aarch64_unknown_linux_gnu="-march=armv8-a"
+              export CFLAGS_aarch64_unknown_linux_gnu="-D__ARM_ARCH=8 -march=armv8-a"
             fi
       - uses: actions/upload-artifact@v4
         with:
