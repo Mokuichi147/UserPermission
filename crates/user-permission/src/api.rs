@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use user_permission::{GroupUpdate, User, UserUpdate};
+use user_permission_core::{GroupUpdate, User, UserUpdate};
 
 use crate::auth::{AdminUser, AuthUser};
 use crate::error::ApiError;
@@ -58,8 +58,8 @@ pub struct GroupResponse {
     pub updated_at: String,
 }
 
-impl From<user_permission::Group> for GroupResponse {
-    fn from(g: user_permission::Group) -> Self {
+impl From<user_permission_core::Group> for GroupResponse {
+    fn from(g: user_permission_core::Group) -> Self {
         Self {
             id: g.id,
             name: g.name,

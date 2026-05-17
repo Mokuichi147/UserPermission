@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use user_permission::{User, UserUpdate};
+use user_permission_core::{User, UserUpdate};
 
 use crate::database::SharedDb;
 use crate::error::map_core_err;
@@ -52,7 +52,7 @@ impl PyUserManager {
     }
 }
 
-fn get_db(db: &SharedDb) -> PyResult<user_permission::Database> {
+fn get_db(db: &SharedDb) -> PyResult<user_permission_core::Database> {
     db.lock()
         .expect("db lock poisoned")
         .as_ref()

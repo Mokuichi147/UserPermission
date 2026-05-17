@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use user_permission::Database;
+use user_permission_core::Database;
 
 #[derive(Clone)]
 pub struct WebConfig {

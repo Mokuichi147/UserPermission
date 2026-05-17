@@ -12,7 +12,7 @@
 - **HTTP サーバー**: axum で実装した REST API を `await user_permission.serve(...)` または `user-permission serve` CLI から起動
 
 > **v0.3 からの移行**:
-> `create_router` / `create_app` / `create_webui_router` / `create_relay_router` は廃止されました。Python の FastAPI に直接埋め込む代わりに、サーバーが必要な場合は `await user_permission.serve(...)` を呼ぶか、Rust バイナリ (`cargo install user-permission-cli`) を別プロセスで起動してください。
+> `create_router` / `create_app` / `create_webui_router` / `create_relay_router` は廃止されました。Python の FastAPI に直接埋め込む代わりに、サーバーが必要な場合は `await user_permission.serve(...)` を呼ぶか、Rust バイナリ (`cargo install user-permission`) を別プロセスで起動してください。
 > `fastapi` / `server` / `webui` / `relay` の optional extras は不要になり、依存も含めて削除されました。
 
 > **リポジトリ構成**: 現在は単一リポジトリ (Cargo workspace + maturin) ですが、近日中に Rust クレートを `mokuichi147/user-permission` に分離し、本リポジトリは PyO3 バインディングのみ (`user-permission-py` にリネーム予定) に縮小する計画です。Python パッケージ名 (`user-permission`) と Rust クレート名 (`user-permission`) は据え置きです。
@@ -32,9 +32,9 @@ maturin develop                    # 開発用に現在の venv に組み込む
 ### Rust
 
 ```bash
-cargo add user-permission                    # ライブラリとして
-cargo install user-permission-cli            # 単体サーバー
-cargo add user-permission-web                # axum ルーターを別アプリに組み込む
+cargo add user-permission-core   # コア (DB / 認証 / JWT) のみ
+cargo add user-permission        # axum ルーターを別アプリに組み込む
+cargo install user-permission    # 単体サーバーとしてインストール
 ```
 
 ## 使い方 (Python)
@@ -117,9 +117,11 @@ asyncio.run(serve(host="0.0.0.0", port=8001, prefix="/api", webui=True))
 CLI からも起動できます。
 
 ```bash
+# Python から (pip install user-permission した場合)
 user-permission serve --host 0.0.0.0 --port 8001 --prefix /api --webui
-# あるいは Rust バイナリ (パフォーマンス重視):
-cargo install user-permission-cli
+
+# Rust バイナリ (パフォーマンス重視)
+cargo install user-permission
 user-permission serve --host 0.0.0.0 --port 8001 --prefix /api --webui
 ```
 
@@ -159,12 +161,14 @@ async with Database("http://localhost:8001") as db:
 
 ## 使い方 (Rust)
 
+コアだけ使う場合 (`user-permission-core`):
+
 ```rust
 use std::time::Duration;
-use user_permission::Database;
+use user_permission_core::Database;
 
 #[tokio::main]
-async fn main() -> user_permission::Result<()> {
+async fn main() -> user_permission_core::Result<()> {
     let db = Database::open_local("app.db", Some("secret.key")).await?;
 
     let alice = db.users().create("alice", "password123", "Alice").await?;
@@ -182,11 +186,11 @@ async fn main() -> user_permission::Result<()> {
 }
 ```
 
-axum ルーターを組み込む場合:
+axum ルーターを別アプリに組み込む場合 (`user-permission`):
 
 ```rust
-use user_permission::Database;
-use user_permission_web::{build_app, WebConfig};
+use user_permission::{build_app, WebConfig};
+use user_permission_core::Database;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

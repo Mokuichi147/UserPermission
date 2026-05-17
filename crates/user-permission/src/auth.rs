@@ -3,7 +3,7 @@ use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::{header, StatusCode};
 use std::sync::Arc;
-use user_permission::User;
+use user_permission_core::User;
 
 use crate::error::ApiError;
 use crate::state::AppState;

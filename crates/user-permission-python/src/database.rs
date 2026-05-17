@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use user_permission::Database;
+use user_permission_core::Database;
 
 use crate::error::map_core_err;
 use crate::group::PyGroupManager;

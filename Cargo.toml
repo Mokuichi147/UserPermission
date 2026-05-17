@@ -1,9 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/user-permission-core",
     "crates/user-permission",
-    "crates/user-permission-web",
-    "crates/user-permission-cli",
     "crates/user-permission-python",
 ]
 
@@ -17,8 +16,8 @@ repository = "https://github.com/mokuichi147/user-permission"
 homepage = "https://github.com/mokuichi147/user-permission"
 
 [workspace.dependencies]
+user-permission-core = { path = "crates/user-permission-core", version = "0.4.0" }
 user-permission = { path = "crates/user-permission", version = "0.4.0" }
-user-permission-web = { path = "crates/user-permission-web", version = "0.4.0" }
 
 tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "sync", "net", "signal"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "chrono"] }

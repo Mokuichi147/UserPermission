@@ -5,7 +5,7 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde_json::Value;
-use user_permission::TokenManager;
+use user_permission_core::TokenManager;
 
 use crate::error::map_core_err;
 

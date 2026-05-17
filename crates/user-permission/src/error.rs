@@ -1,61 +1,73 @@
-use thiserror::Error;
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use serde_json::json;
+use user_permission_core::Error as CoreError;
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("not found")]
-    NotFound,
-
-    #[error("conflict: {0}")]
-    Conflict(String),
-
-    #[error("invalid credentials")]
-    InvalidCredentials,
-
-    #[error("token manager not configured (Database::open_local requires a secret)")]
-    MissingTokenManager,
-
-    #[error("database not connected")]
-    NotConnected,
-
-    #[error("database error: {0}")]
-    Db(#[from] sqlx::Error),
-
-    #[error("migration error: {0}")]
-    Migrate(#[from] sqlx::migrate::MigrateError),
-
-    #[error("password hash error: {0}")]
-    Password(String),
-
-    #[error("jwt error: {0}")]
-    Jwt(#[from] jsonwebtoken::errors::Error),
-
-    #[error("http error: {0}")]
-    Http(#[from] reqwest::Error),
-
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("url parse error: {0}")]
-    Url(#[from] url::ParseError),
-
-    #[error("relay returned status {status}: {body}")]
-    Relay { status: u16, body: String },
-
-    #[error("invalid argument: {0}")]
-    InvalidArgument(String),
+#[derive(Debug)]
+pub struct ApiError {
+    pub status: StatusCode,
+    pub detail: String,
+    pub bearer_challenge: bool,
 }
 
-impl Error {
-    pub fn is_unique_violation(&self) -> bool {
-        match self {
-            Error::Conflict(_) => true,
-            Error::Db(sqlx::Error::Database(e)) => e
-                .code()
-                .map(|c| c == "2067" || c == "1555") // SQLITE_CONSTRAINT_UNIQUE / PRIMARYKEY
-                .unwrap_or(false),
-            _ => false,
+impl ApiError {
+    pub fn new(status: StatusCode, detail: impl Into<String>) -> Self {
+        Self {
+            status,
+            detail: detail.into(),
+            bearer_challenge: false,
+        }
+    }
+
+    pub fn unauthorized(detail: impl Into<String>) -> Self {
+        let mut err = Self::new(StatusCode::UNAUTHORIZED, detail);
+        err.bearer_challenge = true;
+        err
+    }
+
+    pub fn internal(detail: impl Into<String>) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, detail)
+    }
+
+    pub fn with_bearer(mut self) -> Self {
+        self.bearer_challenge = true;
+        self
+    }
+}
+
+impl From<CoreError> for ApiError {
+    fn from(value: CoreError) -> Self {
+        match value {
+            CoreError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "Not found"),
+            CoreError::Conflict(msg) => ApiError::new(StatusCode::CONFLICT, msg),
+            CoreError::InvalidCredentials => {
+                let mut err =
+                    ApiError::new(StatusCode::UNAUTHORIZED, "Invalid username or password");
+                err.bearer_challenge = true;
+                err
+            }
+            CoreError::MissingTokenManager => {
+                ApiError::internal("token manager not configured")
+            }
+            err if err.is_unique_violation() => {
+                ApiError::new(StatusCode::CONFLICT, err.to_string())
+            }
+            other => ApiError::internal(other.to_string()),
         }
     }
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let body = Json(json!({ "detail": self.detail }));
+        let mut headers = HeaderMap::new();
+        if self.bearer_challenge {
+            headers.insert(
+                axum::http::header::WWW_AUTHENTICATE,
+                HeaderValue::from_static("Bearer"),
+            );
+        }
+        (self.status, headers, body).into_response()
+    }
+}

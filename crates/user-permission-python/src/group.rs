@@ -1,6 +1,6 @@
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use user_permission::{Group, GroupUpdate};
+use user_permission_core::{Group, GroupUpdate};
 
 use crate::database::SharedDb;
 use crate::error::map_core_err;
@@ -51,7 +51,7 @@ impl PyGroupManager {
     }
 }
 
-fn get_db(db: &SharedDb) -> PyResult<user_permission::Database> {
+fn get_db(db: &SharedDb) -> PyResult<user_permission_core::Database> {
     db.lock()
         .expect("db lock poisoned")
         .as_ref()

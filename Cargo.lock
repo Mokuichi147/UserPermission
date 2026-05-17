@@ -2811,6 +2811,29 @@ dependencies = [
 name = "user-permission"
 version = "0.4.0"
 dependencies = [
+ "anyhow",
+ "askama",
+ "askama_axum",
+ "axum",
+ "chrono",
+ "clap",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "user-permission-core",
+]
+
+[[package]]
+name = "user-permission-core"
+version = "0.4.0"
+dependencies = [
  "argon2",
  "async-trait",
  "chrono",
@@ -2829,20 +2852,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "user-permission-cli"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "axum",
- "clap",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user-permission",
- "user-permission-web",
-]
-
-[[package]]
 name = "user-permission-python"
 version = "0.4.0"
 dependencies = [
@@ -2854,27 +2863,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "user-permission",
- "user-permission-web",
-]
-
-[[package]]
-name = "user-permission-web"
-version = "0.4.0"
-dependencies = [
- "askama",
- "askama_axum",
- "axum",
- "chrono",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "user-permission",
+ "user-permission-core",
 ]
 
 [[package]]

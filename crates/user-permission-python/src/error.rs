@@ -1,6 +1,6 @@
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::PyErr;
-use user_permission::Error;
+use user_permission_core::Error;
 
 pub fn map_core_err(err: Error) -> PyErr {
     match err {

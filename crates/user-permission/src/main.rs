@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use user_permission::Database;
-use user_permission_web::{build_app, WebConfig};
+use user_permission::{build_app, WebConfig};
+use user_permission_core::Database;
 
 #[derive(Parser)]
 #[command(

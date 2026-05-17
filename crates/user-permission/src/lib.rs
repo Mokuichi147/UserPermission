@@ -1,32 +1,79 @@
-//! `user-permission` – async user / group management with SQLite or HTTP relay backend.
+//! `user-permission` — axum REST API + WebUI library plus a ready-to-run
+//! server binary (`cargo install user-permission`).
 //!
-//! ```no_run
-//! use std::time::Duration;
-//! use user_permission::Database;
+//! Core data types (`Database`, `User`, `Group`, etc.) live in the sibling
+//! [`user_permission_core`] crate; this crate adds the HTTP layer.
 //!
-//! # async fn run() -> user_permission::Result<()> {
+//! ```ignore
+//! use user_permission_core::Database;
+//! use user_permission::{build_app, WebConfig};
+//!
 //! let db = Database::open_local("app.db", Some("secret.key")).await?;
-//! let user = db.users().create("alice", "password123", "Alice").await?;
-//! let token = db
-//!     .users()
-//!     .authenticate("alice", "password123", Duration::from_secs(3600))
-//!     .await?;
-//! assert!(token.is_some());
-//! # let _ = user;
-//! # Ok(())
-//! # }
+//! let app = build_app(db, WebConfig::default());
+//! let listener = tokio::net::TcpListener::bind("127.0.0.1:8000").await?;
+//! axum::serve(listener, app).await?;
 //! ```
 
-mod database;
-mod error;
-mod group;
-pub mod password;
-mod relay;
-mod user;
-pub mod token;
+pub mod api;
+pub mod auth;
+pub mod error;
+pub mod state;
+pub mod webui;
 
-pub use database::Database;
-pub use error::{Error, Result};
-pub use group::{Group, GroupManager, GroupUpdate};
-pub use token::{load_or_create_secret, BaseClaims, TokenManager};
-pub use user::{User, UserManager, UserUpdate};
+use std::sync::Arc;
+
+use axum::Router;
+use user_permission_core::Database;
+
+pub use error::ApiError;
+pub use state::{AppState, WebConfig};
+
+/// Build the full axum router: REST API mounted at `config.api_prefix`,
+/// optional HTMX WebUI mounted at `config.webui_prefix`, and a `/` →
+/// `webui_prefix` redirect when both prefixes are non-empty.
+pub fn build_app(db: Database, config: WebConfig) -> Router {
+    let webui_enabled = config.webui_enabled;
+    let api_prefix = config.api_prefix.clone();
+    let webui_prefix = config.webui_prefix.clone();
+    let state = Arc::new(AppState { db, config });
+
+    let mut app = Router::new();
+
+    let api_router: Router<Arc<AppState>> = api::router();
+    if api_prefix.is_empty() {
+        app = app.merge(api_router.clone().with_state(state.clone()));
+    } else {
+        app = app.nest(&api_prefix, api_router.with_state(state.clone()));
+    }
+
+    if webui_enabled {
+        let webui_router: Router<Arc<AppState>> = webui::router();
+        if webui_prefix.is_empty() {
+            app = app.merge(webui_router.with_state(state.clone()));
+        } else {
+            app = app.nest(&webui_prefix, webui_router.with_state(state.clone()));
+        }
+        if !api_prefix.is_empty() || !webui_prefix.is_empty() {
+            let target = if webui_prefix.is_empty() {
+                "/".to_string()
+            } else {
+                format!("{}/", webui_prefix.trim_end_matches('/'))
+            };
+            app = app.route(
+                "/",
+                axum::routing::get(move || {
+                    let target = target.clone();
+                    async move { axum::response::Redirect::to(&target) }
+                }),
+            );
+        }
+    }
+
+    app
+}
+
+/// Convenience constructor for an API-only router with no nesting.
+pub fn api_router(db: Database, config: WebConfig) -> Router {
+    let state = Arc::new(AppState { db, config });
+    api::router().with_state(state)
+}

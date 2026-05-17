@@ -1,6 +1,6 @@
 [package]
 name = "user-permission-python"
-description = "PyO3 bindings for the user-permission crate (Python package: user-permission)"
+description = "PyO3 bindings for user-permission (Python package: user-permission)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -16,9 +16,9 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Workspace path 依存 — Rust 実装を別リポ `mokuichi147/user-permission` に分離した後は
-# `user-permission = "0.4"` (crates.io version 依存) に差し替える。
+# `user-permission-core = "0.4"` / `user-permission = "0.4"` (crates.io version 依存) に差し替える。
+user-permission-core = { workspace = true }
 user-permission = { workspace = true }
-user-permission-web = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"] }

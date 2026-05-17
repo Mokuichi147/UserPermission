@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use user_permission::{Database, GroupUpdate, UserUpdate};
+use user_permission_core::{Database, GroupUpdate, UserUpdate};
 
 async fn open_test_db() -> (Database, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
