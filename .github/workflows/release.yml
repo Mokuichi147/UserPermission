@@ -54,9 +54,9 @@ jobs:
       matrix:
         include:
           - target: x86_64
-            runner: macos-13      # Intel runner
+            runner: macos-14      # Apple Silicon でクロスコンパイル
           - target: aarch64
-            runner: macos-14      # Apple Silicon runner
+            runner: macos-14      # Apple Silicon ネイティブ
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
