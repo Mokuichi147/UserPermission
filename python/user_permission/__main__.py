@@ -1,6 +1,6 @@
 """`python -m user_permission` / `user-permission` CLI entrypoint.
 
-The full-featured CLI lives in the Rust binary (``cargo install user-permission-cli``).
+The full-featured CLI lives in the Rust binary (``cargo install user-permission``).
 This Python entrypoint mirrors the legacy ``user-permission serve`` interface
 and delegates to ``user_permission.serve(...)``.
 """
@@ -37,8 +37,14 @@ def main() -> None:
     if args.command != "serve":
         _build_parser().print_help()
         sys.exit(1)
-    asyncio.run(
-        serve(
+
+    # `serve(...)` calls into pyo3-async-runtimes which captures the running
+    # asyncio loop at *evaluation* time. Building the awaitable inside an
+    # `async def` ensures the loop is running by the time we reach it;
+    # `asyncio.run(serve(...))` would fail with `no running event loop`
+    # because the awaitable is constructed before `asyncio.run` starts.
+    async def _run() -> None:
+        await serve(
             host=args.host,
             port=args.port,
             database=args.database,
@@ -47,7 +53,8 @@ def main() -> None:
             webui=args.webui,
             webui_prefix=args.webui_prefix,
         )
-    )
+
+    asyncio.run(_run())
 
 
 if __name__ == "__main__":
