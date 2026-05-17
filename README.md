@@ -4,31 +4,40 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/user-permission?cacheSeconds=0)
 ![Pepy Total Downloads](https://img.shields.io/pepy/dt/user-permission?cacheSeconds=0)
 
-ユーザーとグループを管理するための非同期Pythonライブラリです。
+ユーザーとグループを管理するための非同期ライブラリです。
+**v0.4.0 から Rust 実装に移行**し、Python 側は PyO3 + maturin による薄いラッパーになりました。
 
-- **aiosqlite** による非同期SQLiteデータベース管理
-- **pwdlib (Argon2)** によるパスワードハッシュ化
-- **PyJWT** によるJWTトークンの発行・検証
+- **Rust コア**: tokio + sqlx(SQLite) + argon2 + jsonwebtoken
+- **Python API**: `async with Database(...)` の使い勝手はそのまま、ネイティブ拡張で高速化
+- **HTTP サーバー**: axum で実装した REST API を `await user_permission.serve(...)` または `user-permission serve` CLI から起動
+
+> **v0.3 からの移行**:
+> `create_router` / `create_app` / `create_webui_router` / `create_relay_router` は廃止されました。Python の FastAPI に直接埋め込む代わりに、サーバーが必要な場合は `await user_permission.serve(...)` を呼ぶか、Rust バイナリ (`cargo install user-permission`) を別プロセスで起動してください。
+> `fastapi` / `server` / `webui` / `relay` の optional extras は不要になり、依存も含めて削除されました。
+
+> **リポジトリ構成**: 現在は単一リポジトリ (Cargo workspace + maturin) ですが、近日中に Rust クレートを `mokuichi147/user-permission` に分離し、本リポジトリは PyO3 バインディングのみ (`user-permission-py` にリネーム予定) に縮小する計画です。Python パッケージ名 (`user-permission`) と Rust クレート名 (`user-permission`) は据え置きです。
 
 ## インストール
 
+### Python
+
 ```bash
-uv sync
-
-# FastAPI連携を使う場合
-uv sync --extra fastapi
-
-# サーバーとして起動する場合（uvicorn含む）
-uv sync --extra server
-
-# Web管理画面を使う場合（FastAPI + Jinja2 + HTMX + Tailwind CSS）
-uv sync --extra webui
-
-# リレークライアントを使う場合（httpx含む）
-uv sync --extra relay
+pip install user-permission        # PyPI からビルド済 wheel
+# またはソースから:
+maturin develop                    # 開発用に現在の venv に組み込む
 ```
 
-## 使い方
+依存パッケージはありません (Rust 拡張に同梱)。Python 3.9 以降の abi3 wheel を公開しています。
+
+### Rust
+
+```bash
+cargo add user-permission-core   # コア (DB / 認証 / JWT) のみ
+cargo add user-permission        # axum ルーターを別アプリに組み込む
+cargo install user-permission    # 単体サーバーとしてインストール
+```
+
+## 使い方 (Python)
 
 ### 初期化
 
@@ -39,7 +48,6 @@ from user_permission import Database
 async def main():
     # 初回実行時にシークレットキーを自動生成（以降はファイルから読み込み）
     async with Database("app.db", secret="secret.key") as db:
-        # db.users / db.groups ですぐに使える
         user = await db.users.create("alice", "password123")
         group = await db.groups.create("admins")
 
@@ -49,85 +57,72 @@ asyncio.run(main())
 ### ユーザー管理
 
 ```python
-# 作成
 user = await db.users.create("alice", "password123", display_name="Alice")
-
-# 取得
 user = await db.users.get_by_id(1)
 user = await db.users.get_by_username("alice")
-
-# 一覧
 users = await db.users.list_all()
 
-# 更新（パスワード変更など）
 await db.users.update(user.id, password="new_password")
 await db.users.update(user.id, display_name="Alice Smith")
-
-# 無効化
 await db.users.update(user.id, is_active=False)
-
-# 削除
 await db.users.delete(user.id)
 ```
 
 ### 認証・トークン
 
 ```python
-# ログイン認証（成功時にJWTトークンを返す、失敗時はNone）
-token = await db.users.authenticate("alice", "password123")
-
-# トークンの有効期限を指定
 from datetime import timedelta
-token = await db.users.authenticate("alice", "password123", expires_delta=timedelta(hours=24))
 
-# トークン検証
+token = await db.users.authenticate("alice", "password123")
+token = await db.users.authenticate(
+    "alice", "password123", expires_delta=timedelta(hours=24)
+)
+
 payload = db.token_manager.verify_token(token)
-print(payload["sub"])       # ユーザーID（文字列）
-print(payload["username"])  # ユーザー名
+print(payload["sub"])        # ユーザーID（文字列）
+print(payload["username"])   # ユーザー名
+print(payload["is_admin"])   # bool
 ```
 
 ### グループ管理
 
 ```python
-# 作成
 group = await db.groups.create("admins", description="Administrator group")
-
-# 取得
 group = await db.groups.get_by_id(1)
 group = await db.groups.get_by_name("admins")
-
-# 一覧
 groups = await db.groups.list_all()
 
-# 更新
 await db.groups.update(group.id, description="Updated description")
-
-# 削除
 await db.groups.delete(group.id)
 ```
 
 ### グループメンバー管理
 
 ```python
-# ユーザーをグループに追加
 await db.groups.add_user(group.id, user.id)
-
-# ユーザーをグループから削除
 await db.groups.remove_user(group.id, user.id)
-
-# グループのメンバー一覧
 members = await db.groups.get_members(group.id)
-
-# ユーザーの所属グループ一覧
 groups = await db.groups.get_user_groups(user.id)
 ```
 
 ### サーバー起動
 
-`user-permission[server]` でインストールすると、CLIからサーバーを起動できます。
+```python
+import asyncio
+from user_permission import serve
+
+asyncio.run(serve(host="0.0.0.0", port=8001, prefix="/api", webui=True))
+```
+
+CLI からも起動できます。
 
 ```bash
-uv run user-permission serve --host localhost --port 8001
+# Python から (pip install user-permission した場合)
+user-permission serve --host 0.0.0.0 --port 8001 --prefix /api --webui
+
+# Rust バイナリ (パフォーマンス重視)
+cargo install user-permission
+user-permission serve --host 0.0.0.0 --port 8001 --prefix /api --webui
 ```
 
 | オプション | デフォルト | 説明 |
@@ -137,20 +132,14 @@ uv run user-permission serve --host localhost --port 8001
 | `--database` | `user_permission.db` | SQLiteデータベースのパス |
 | `--secret` | `secret.key` | シークレットキーファイルのパス |
 | `--prefix` | (なし) | APIルートプレフィックス（例: `/api`） |
-| `--webui` | 無効 | Web管理画面（HTMX+Tailwind+Jinja2）を有効化 |
+| `--webui` | 無効 | Web管理画面（HTMX+Tailwind）を有効化 |
 | `--webui-prefix` | `/ui` | 管理画面のURLプレフィックス |
 
-```bash
-# APIと管理画面を同時に起動
-uv run user-permission serve --prefix /api --webui
-# → API: http://localhost:8000/api/*
-# → 管理画面: http://localhost:8000/ui/
-```
+> **Web 管理画面の移植状況**: v0.4 系列ではプレースホルダ画面のみ提供しています。HTMX/Tailwind ベースの完全な管理画面は v0.4.x の追加リリースで再実装予定です。当面はREST API か legacy v0.3 を利用してください。
 
 ### リレー（中継）
 
-`user-permission[relay]` でインストールすると、`Database` に URL を渡すだけで、
-ローカル SQLite と中央の UserPermission サーバーを同じインターフェースで切り替えられます。
+`Database` に URL を渡すと、ローカル SQLite と中央サーバーを同じインターフェースで切り替えられます。
 
 ```python
 from user_permission import Database
@@ -158,187 +147,100 @@ from user_permission import Database
 # ファイルパス → ローカル SQLite
 db = Database("app.db", secret="secret.key")
 
-# URL → リレー（リモートサーバーへ HTTP 中継）
+# URL → リモートサーバーへ HTTP 中継
 db = Database("http://localhost:8001")
-```
 
-どちらでも `db.users` / `db.groups` の API は共通です。
-
-```python
 async with Database("http://localhost:8001") as db:
-    # ログイン
-    token = await db.users.authenticate("alice", "password123")
-
-    # トークン検証
-    user = await db.verify_token(token)
-
-    # ユーザー・グループ操作（認証トークン付き）
-    users = await db.users.list_all(token)
-    group = await db.groups.create("admins", "Admin group", token)
-    await db.groups.add_user(group.id, user.id, token)
+    token = await db.login("alice", "password123")
+    users = await db.users.list_all()
+    group = await db.groups.create("admins", "Admin group")
+    await db.groups.add_user(group.id, user.id)
 ```
 
-#### リレールーター（FastAPIアプリに中継ルーターをマウント）
+`db.login(...)` で取得したトークンは Database が内部に保持し、以降のリクエストの `Authorization: Bearer` に自動付与されます。
 
-別のFastAPIアプリにマウントすると、全リクエストが中央サーバーへ透過的に中継されます。
+## 使い方 (Rust)
 
-```python
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from user_permission import Database, create_relay_router
+コアだけ使う場合 (`user-permission-core`):
 
-db = Database("http://localhost:8001")
+```rust
+use std::time::Duration;
+use user_permission_core::Database;
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await db.connect()
-    yield
-    await db.close()
+#[tokio::main]
+async fn main() -> user_permission_core::Result<()> {
+    let db = Database::open_local("app.db", Some("secret.key")).await?;
 
-app = FastAPI(lifespan=lifespan)
-app.include_router(create_relay_router(db, prefix="/auth"))
-# /auth/token, /auth/me, /auth/users, ... が全て中央サーバーへ中継される
+    let alice = db.users().create("alice", "password123", "Alice").await?;
+    let token = db
+        .users()
+        .authenticate("alice", "password123", Duration::from_secs(3600))
+        .await?
+        .expect("credentials");
+    println!("token = {token}");
+
+    let editors = db.groups().create("editors", "Editors", false).await?;
+    db.groups().add_user(editors.id, alice.id).await?;
+
+    Ok(())
+}
 ```
 
-### FastAPI連携
+axum ルーターを別アプリに組み込む場合 (`user-permission`):
 
-`user-permission[fastapi]` でインストールすると、ルーターを追加するだけでREST APIが使えます。
+```rust
+use user_permission::{build_app, WebConfig};
+use user_permission_core::Database;
 
-```python
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from user_permission import Database, create_router
-
-db = Database("app.db", secret="secret.key")
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await db.connect()
-    yield
-    await db.close()
-
-app = FastAPI(lifespan=lifespan)
-app.include_router(create_router(db, prefix="/api"))
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let db = Database::open_local("app.db", Some("secret.key")).await?;
+    let app = build_app(db, WebConfig { api_prefix: "/api".into(), ..Default::default() });
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8001").await?;
+    axum::serve(listener, app).await?;
+    Ok(())
+}
 ```
 
-#### エンドポイント一覧
+## REST API
 
 | メソッド | パス | 説明 | 認証 |
 |---|---|---|---|
-| POST | `/api/token` | ログイン（トークン取得） | 不要 |
-| GET | `/api/me` | 現在のユーザー情報（`is_admin` を含む） | 必要 |
-| POST | `/api/users` | ユーザー作成 | 不要 |
-| GET | `/api/users` | ユーザー一覧 | 必要 |
-| GET | `/api/users/{id}` | ユーザー取得 | 必要 |
-| PATCH | `/api/users/{id}` | ユーザー更新 | 本人 or 管理者 |
-| DELETE | `/api/users/{id}` | ユーザー削除 | 本人 or 管理者 |
-| POST | `/api/groups` | グループ作成 | 管理者 |
-| GET | `/api/groups` | グループ一覧 | 必要 |
-| GET | `/api/groups/{id}` | グループ取得 | 必要 |
-| PATCH | `/api/groups/{id}` | グループ更新 | 管理者 |
-| DELETE | `/api/groups/{id}` | グループ削除 | 管理者 |
-| POST | `/api/groups/{id}/members` | メンバー追加（管理者グループへの追加が昇格） | 管理者 |
-| DELETE | `/api/groups/{id}/members/{user_id}` | メンバー削除（管理者グループから外すと降格） | 管理者 |
-| GET | `/api/groups/{id}/members` | メンバー一覧 | 必要 |
-| GET | `/api/users/{id}/groups` | 所属グループ一覧 | 必要 |
+| POST | `/token` | ログイン（トークン取得） | 不要 |
+| GET | `/me` | 現在のユーザー情報（`is_admin` を含む） | 必要 |
+| POST | `/users` | ユーザー作成 | 不要 |
+| GET | `/users` | ユーザー一覧 | 必要 |
+| GET | `/users/{id}` | ユーザー取得 | 必要 |
+| PATCH | `/users/{id}` | ユーザー更新 | 本人 or 管理者 |
+| DELETE | `/users/{id}` | ユーザー削除 | 本人 or 管理者 |
+| POST | `/groups` | グループ作成 | 管理者 |
+| GET | `/groups` | グループ一覧 | 必要 |
+| GET | `/groups/{id}` | グループ取得 | 必要 |
+| PATCH | `/groups/{id}` | グループ更新 | 管理者 |
+| DELETE | `/groups/{id}` | グループ削除 | 管理者 |
+| POST | `/groups/{id}/members` | メンバー追加 | 管理者 |
+| DELETE | `/groups/{id}/members/{user_id}` | メンバー削除 | 管理者 |
+| GET | `/groups/{id}/members` | メンバー一覧 | 必要 |
+| GET | `/users/{id}/groups` | 所属グループ一覧 | 必要 |
 
-### 管理者ロール
+## 管理者ロール
 
-UserPermission サーバー自身の管理権限（ユーザー/グループ/管理者の管理）は `groups.is_admin = 1` のグループで表現します。
-このフラグが立った**管理者グループ**に所属しているユーザーが「UserPermission 管理者」です。
+UserPermission サーバー自身の管理権限は `groups.is_admin = 1` のグループで表現します。
+このフラグが立った **管理者グループ** に所属しているユーザーが「UserPermission 管理者」です。
 
 - 管理者は他ユーザーの編集・削除、グループの作成・更新・削除、メンバー管理が可能
 - 他ユーザーの管理者昇格/降格は、管理者グループへの加入/脱退で行う
 - 管理者グループは複数作れる（運用で分けたい場合）
 - **消費サービス側の「アプリ管理者」などの概念はこの権限とは別**で、通常のグループ（`is_admin = 0`）で自由に表現してください
 
-#### 初回セットアップ
+### 初回セットアップ
 
-最初に作成されたユーザーは**自動的に管理者グループに加入**します。`admin` という名前のグループが無ければ、`is_admin = 1` で新規作成されます。
+最初に作成されたユーザーは **自動的に管理者グループに加入** します。`admin` という名前のグループが無ければ、`is_admin = 1` で新規作成されます。
 
-```bash
-# 新しいDBで最初のユーザーを登録するだけで管理者になる
-uv run user-permission serve --database app.db --secret secret.key --webui
-# ブラウザで /ui/register から alice を作成 → 自動的に管理者
-```
+### 既存DBのマイグレーション
 
-#### 既存DBのマイグレーション
-
-v0.2.0 以降は起動時に `groups.is_admin` 列の存在を確認し、無ければ `ALTER TABLE` で追加します。既存データは壊しません。
-既存のDBには管理者がまだ存在しないため、Python から手動で昇格させます。
-
-```python
-import asyncio
-from user_permission import Database
-
-async def main():
-    async with Database("app.db", secret="secret.key") as db:
-        # 既存の好きなグループを管理者グループにする
-        group = await db.groups.get_by_name("admins")
-        await db.groups.update(group.id, is_admin=True)
-        # あるいは新規に作って任意ユーザーを加える
-        admin_group = await db.groups.create("admin", "管理者", is_admin=True)
-        user = await db.users.get_by_username("alice")
-        await db.groups.add_user(admin_group.id, user.id)
-
-asyncio.run(main())
-```
-
-### Web管理画面
-
-`user-permission[webui]` でインストールすると、ブラウザ上でアカウント・グループを管理できる画面が追加されます。
-FastAPI + Jinja2 + HTMX + Tailwind CSS（CDN）で構成されており、`create_webui_router` をマウントするか、
-CLI の `--webui` フラグで有効化できます。
-
-```python
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from user_permission import Database, create_router, create_webui_router
-
-db = Database("app.db", secret="secret.key")
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await db.connect()
-    yield
-    await db.close()
-
-app = FastAPI(lifespan=lifespan)
-app.include_router(create_router(db, prefix="/api"))
-app.include_router(create_webui_router(db, prefix="/ui"))
-# → /ui/login, /ui/register, /ui/users, /ui/groups, /ui/me ...
-```
-
-`create_app(webui=True)` を使えばAPIと管理画面を一括で有効化できます。
-
-```python
-from user_permission import create_app
-
-app = create_app(
-    database="app.db",
-    secret="secret.key",
-    prefix="/api",
-    webui=True,
-    webui_prefix="/ui",
-)
-```
-
-#### 画面一覧
-
-| パス | 説明 |
-|---|---|
-| `/ui/login` | ログイン |
-| `/ui/register` | 新規アカウント登録（登録と同時にログイン） |
-| `/ui/logout` | ログアウト（Cookieを破棄） |
-| `/ui/` | ダッシュボード（ユーザー数・グループ数・所属グループ） |
-| `/ui/me` | プロフィール編集 / パスワード変更 / 所属グループ |
-| `/ui/users` | ユーザー一覧・作成（管理者は他ユーザーの編集・削除・有効/無効切替・管理者昇格/降格が可能） |
-| `/ui/groups` | グループ一覧（作成・削除は管理者のみ） |
-| `/ui/groups/{id}` | グループ編集・メンバー追加/削除（管理者のみ） |
-
-認証はHTTPOnly Cookie（JWT）で管理され、トークンの有効期限は `create_webui_router(token_expires=...)` で調整できます（デフォルト24時間）。
-
-管理者グループには一覧で「🔑 管理者」バッジが表示されます。管理者昇格/降格は、ユーザー一覧行のボタンから行えます（内部的には管理者グループへの加入/脱退）。
+v0.4 起動時には `groups.is_admin` 列の存在を確認し、無ければ `ALTER TABLE` で追加します。既存データは壊しません。
+スキーマ自体は v0.2 以降と互換で、v0.3 で作成された SQLite ファイルはそのまま使えます。
 
 ## データベーススキーマ
 
@@ -350,26 +252,22 @@ app = create_app(
 
 ユーザーまたはグループを削除すると、関連する `user_groups` レコードも自動的に削除されます（CASCADE）。
 
-## 依存パッケージ
+## 開発
 
-- [aiosqlite](https://pypi.org/project/aiosqlite/) - 非同期SQLite
-- [pwdlib[argon2]](https://pypi.org/project/pwdlib/) - パスワードハッシュ化
-- [PyJWT](https://pypi.org/project/PyJWT/) - JWTトークン
+```bash
+# Rust 単体テスト
+cargo test --workspace
 
-オプション（`user-permission[fastapi]`）:
-- [FastAPI](https://pypi.org/project/fastapi/) - Web APIフレームワーク
-- [python-multipart](https://pypi.org/project/python-multipart/) - フォームデータ解析
+# Python wheel をビルドして現在の venv に組み込む
+maturin develop
 
-オプション（`user-permission[webui]`）:
-- 上記FastAPI依存に加えて:
-- [Jinja2](https://pypi.org/project/Jinja2/) - テンプレートエンジン（HTMX + Tailwind CSS はCDNから配信）
+# Python 統合テスト
+pip install pytest pytest-asyncio
+pytest tests/python
 
-オプション（`user-permission[server]`）:
-- 上記FastAPI・Jinja2依存に加えて:
-- [uvicorn](https://pypi.org/project/uvicorn/) - ASGIサーバー
-
-オプション（`user-permission[relay]`）:
-- [httpx](https://pypi.org/project/httpx/) - 非同期HTTPクライアント
+# リリース wheel をビルド
+maturin build --release
+```
 
 ## ライセンス
 

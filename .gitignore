@@ -14,3 +14,14 @@ wheels/
 *.db-shm
 *.db-wal
 *.key
+
+# Rust build artefacts
+/target/
+**/*.rs.bk
+
+# maturin develop / uv sync で生成される native extension (in-tree)
+python/user_permission/*.so
+python/user_permission/*.pyd
+
+# uv が pyproject.toml から再生成するロックファイル (依存ゼロのため固定不要)
+uv.lock
