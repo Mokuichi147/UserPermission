@@ -47,20 +47,8 @@ pub fn build_app(db: Database, config: WebConfig) -> Router {
     }
 
     if webui_enabled {
-        let webui_router: Router<Arc<AppState>> = webui::router();
-        if webui_prefix.is_empty() {
-            app = app.merge(webui_router.with_state(state.clone()));
-        } else {
-            // Nest covers `/ui/<anything>`. The trailing-slash root (`/ui/`)
-            // is added separately because axum 0.7's nest does not match it
-            // against the inner router's fallback.
-            let trimmed = webui_prefix.trim_end_matches('/').to_string();
-            let root_with_slash = format!("{}/", trimmed);
-            app = app
-                .route(&trimmed, axum::routing::get(webui::placeholder))
-                .route(&root_with_slash, axum::routing::get(webui::placeholder))
-                .nest(&trimmed, webui_router.with_state(state.clone()));
-        }
+        let webui_router: Router<Arc<AppState>> = webui::router(&webui_prefix);
+        app = app.merge(webui_router.with_state(state.clone()));
         if !api_prefix.is_empty() || !webui_prefix.is_empty() {
             let target = if webui_prefix.is_empty() {
                 "/".to_string()
