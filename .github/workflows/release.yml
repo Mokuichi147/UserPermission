@@ -34,6 +34,10 @@ jobs:
           args: --release --out dist --interpreter '3.9'
           manylinux: auto
           sccache: ${{ matrix.sccache }}
+          before-script-linux: |
+            if [ "${{ matrix.target }}" = "aarch64" ]; then
+              export CFLAGS_aarch64_unknown_linux_gnu="-march=armv8-a"
+            fi
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.target }}
