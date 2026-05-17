@@ -21,7 +21,7 @@ user-permission-core = { workspace = true }
 user-permission = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
-pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"] }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39", "generate-import-lib"] }
 pyo3-async-runtimes = { version = "0.22", features = ["tokio-runtime"] }
 serde_json = { workspace = true }
 chrono = { workspace = true }

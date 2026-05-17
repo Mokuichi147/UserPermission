@@ -1,24 +1,25 @@
 ---
 name: release
-description: uv を使う Python プロジェクトのバージョン更新、Git タグ作成、GitHub Release 作成、PyPI 公開を行う。`pyproject.toml` と `uv.lock` の更新、前回タグとの差分確認、次バージョンの提案、`dist/` 成果物の添付、対象バージョンだけの `uv publish` が必要なリリース作業で使う。
+description: Rust (PyO3/maturin) + Python プロジェクトのリリース。`pyproject.toml` のバージョン更新、Git タグ作成・push を行い、CI (GitHub Actions) がマルチプラットフォーム wheel ビルド・PyPI 公開・GitHub Release 作成を自動実行する。
 ---
 
 # Release
 
 ## 概要
 
-uv 管理の Python プロジェクトをリリースする。
-バージョンが指定されていればその値で進め、未指定であれば前回タグからの差分を確認して次バージョンを提案し、ユーザー確認を待つ。
+maturin (PyO3) ベースのプロジェクトをリリースする。
+ビルド・PyPI 公開・GitHub Release 作成は CI (`release.yml`) が自動で行うため、ローカルではバージョン更新とタグ push のみ実施する。
 
 ## 前提
 
 - リポジトリルートで作業する。
 - リリース元ブランチは `main` を前提にする。現在のブランチが `main` でなければ中断して確認を取る。
 - `git status --short` が空であることを必須条件にする。未コミット変更があれば中断して報告する。
+- CI ワークフロー `.github/workflows/release.yml` が `v*` タグ push で起動する前提。
 
 ## 入力
 
-- 任意: リリース対象バージョン。例: `0.3.0`
+- 任意: リリース対象バージョン。例: `0.4.0`
 - バージョン未指定時:
   1. 最新タグを確認する。
   2. そのタグ以降のコミットを確認する。
@@ -41,86 +42,56 @@ git log <LATEST_TAG>..HEAD --oneline
 - 未コミット変更があれば中断して内容を報告する。
 - 最新タグが存在しない場合は初回リリースとして扱い、履歴全体を確認対象にする。
 - 差分確認では、今回のリリースに含まれる変更だけを把握する。
+- ローカル main がリモートと同期していることを確認する。
 
 ### 2. バージョン更新
 
-`pyproject.toml` の `[project].version` を更新し、`uv.lock` を同期する。
+`pyproject.toml` の `[project].version` が対象バージョンと一致しているか確認する。
+
+- 既に対象バージョンになっていればこのステップはスキップする。
+- 異なる場合は更新してコミットする:
 
 ```bash
-uv lock
-git add pyproject.toml uv.lock
+# pyproject.toml を編集
+git add pyproject.toml
 git commit -m "v{VERSION}にバージョンアップ"
+git push origin main
 ```
 
-- コミット前に差分を見て、変更が `pyproject.toml` と `uv.lock` に収まっていることを確認する。
-- `uv lock` に失敗した場合は原因を報告して停止する。
-
-### 3. タグ作成とプッシュ
+### 3. タグ作成と push
 
 ```bash
 git tag v{VERSION}
-git push origin main
 git push origin v{VERSION}
 ```
 
 - タグ名は必ず `v{VERSION}` にする。
-- リモートへタグを送る前に `main` の push が成功していることを確認する。
+- タグ push により CI が自動起動し、以下を実行する:
+  - Linux (x86_64, aarch64)、macOS (Intel, Apple Silicon)、Windows (x64) の wheel ビルド
+  - sdist ビルド
+  - PyPI 公開 (trusted publisher / OIDC)
+  - GitHub Release 作成 (自動生成リリースノート + 全成果物添付)
 
-### 4. ビルド
+### 4. CI 完了確認
 
-古い成果物の混在を避けるため、空の `dist/` を前提にビルドする。
-
-```bash
-uv build --clear
-```
-
-- `dist/` から今回のバージョンに対応する `.whl` と `.tar.gz` を 1 つずつ特定する。
-- 配布名は `pyproject.toml` の `[project].name` を前提に判断し、別リポジトリから流用した固定名を使わない。
-- ファイル名の正規化が読みにくい場合は、成果物一覧を確認して対象バージョン文字列を含むものだけを選ぶ。
-- 対象候補が複数ある場合は曖昧なまま公開しない。
-
-### 5. GitHub Release 作成
-
-リリースノートは前回タグから今回タグまでの差分のみを日本語でまとめる。
-過去バージョンの変更内容を混ぜない。
-
-- 前回タグがある場合は `git log <LATEST_TAG>..v{VERSION} --oneline` を基準に要約する。
-- 前回タグがない場合は初回リリースであることを明記し、今回含まれる変更だけを書く。
-- シェルのクォート事故を避けるため、ノートは一時ファイルに書いて `--notes-file` で渡す。
+タグ push 後、CI の状況をユーザーに報告する。
 
 ```bash
-gh release create v{VERSION} \
-  --title "v{VERSION}" \
-  --verify-tag \
-  --notes-file /tmp/release-notes-v{VERSION}.md \
-  dist/<WHEEL_FILE> \
-  dist/<SDIST_FILE>
+gh run list --workflow=release.yml --limit=1
 ```
 
-- 添付するのは今回ビルドした wheel と sdist のみとする。
-- 自動生成ノートに任せず、差分に基づく日本語ノートを使う。
-
-### 6. PyPI 公開
-
-```bash
-uv publish dist/<WHEEL_FILE> dist/<SDIST_FILE>
-```
-
-- 公開対象は今回バージョンの成果物だけに限定する。
-- 認証不足や重複アップロードで失敗した場合は結果をそのまま報告する。
+- CI が失敗した場合は `gh run view` でログを確認し、原因を報告する。
 
 ## 完了報告
 
 完了時は以下をまとめて報告する。
 
 - リリースしたバージョン
-- GitHub Release URL
-- 公開した成果物名
-- PyPI 公開の成否
+- CI の起動状況
+- GitHub Actions の URL（ユーザーが進捗を確認できるよう）
 
 ## 厳守事項
 
 - ワーキングツリーが汚れている状態で進めない。
 - バージョン未指定時は提案までにとどめ、確認なしで確定しない。
-- リリースノートに過去バージョンの内容を混ぜない。
-- `dist/` の古い成果物を誤って添付・公開しない。
+- ローカルでのビルド (`uv build`) や公開 (`uv publish`) は行わない。CI に任せる。

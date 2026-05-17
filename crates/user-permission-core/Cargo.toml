@@ -1,7 +1,6 @@
 [package]
 name = "user-permission-core"
 description = "Async user / group / permission core (SQLite backend, Argon2, JWT, optional HTTP relay)"
-readme = "README.md"
 keywords = ["auth", "users", "permissions", "sqlite", "jwt"]
 categories = ["authentication", "database"]
 version.workspace = true
