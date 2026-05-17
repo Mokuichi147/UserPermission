@@ -1,7 +1,6 @@
 [package]
 name = "user-permission"
 description = "Async user / group management — axum REST API + WebUI library and a ready-to-run server binary"
-readme = "README.md"
 keywords = ["auth", "users", "permissions", "axum", "cli"]
 categories = ["authentication", "web-programming::http-server", "command-line-utilities"]
 version.workspace = true
