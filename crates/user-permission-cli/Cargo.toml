@@ -1,0 +1,27 @@
+[package]
+name = "user-permission-cli"
+description = "Command-line server (`user-permission serve`) for user-permission"
+readme = "README.md"
+keywords = ["auth", "cli", "users", "permissions"]
+categories = ["command-line-utilities", "authentication"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "user-permission"
+path = "src/main.rs"
+
+[dependencies]
+user-permission = { workspace = true }
+user-permission-web = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+axum = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
